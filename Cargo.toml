@@ -1,0 +1,12 @@
+[package]
+name = "barthing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-channel = "2"
+gtk = { package = "gtk4", version = "0.11", features = ["v4_22"] }
+gtk4-layer-shell = "0.8"
+niri-ipc = "=26.4.0"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
