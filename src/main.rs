@@ -49,13 +49,13 @@ count, .count {
 .window-menu {
     min-width: 240px;
 }
-button.window-row {
+button.window-row-select, button.window-row-close {
     padding: 0;
     border: none;
     border-radius: 4px;
     background: transparent;
 }
-button.window-row:hover {
+button.window-row-select:hover, button.window-row-close:hover {
     background: rgba(255, 255, 255, 0.10);
 }
 ";
@@ -142,6 +142,27 @@ fn activate(app: &Application, config: Config) {
     };
     let root = GtkBox::new(orientation, 0);
     window.set_child(Some(&root));
+
+    let ws_accum = std::cell::Cell::new(0.0f64);
+    let ws_scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+    ws_scroll.connect_scroll(move |_, _dx, dy| {
+        if dy == 0.0 {
+            return glib::Propagation::Proceed;
+        }
+        let mut total = ws_accum.get() + dy;
+        total = total.clamp(-4.0, 4.0);
+        while total >= 1.0 {
+            niri::send(niri::Cmd::WorkspaceDown);
+            total -= 1.0;
+        }
+        while total <= -1.0 {
+            niri::send(niri::Cmd::WorkspaceUp);
+            total += 1.0;
+        }
+        ws_accum.set(total);
+        glib::Propagation::Stop
+    });
+    root.add_controller(ws_scroll);
 
     let gear_image = gtk::Image::from_icon_name("preferences-system");
     gear_image.set_pixel_size(22);

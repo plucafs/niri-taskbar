@@ -4,6 +4,8 @@ use niri_ipc::{Action, Event, Request};
 pub enum Cmd {
     Focus(u64),
     Close(u64),
+    WorkspaceUp,
+    WorkspaceDown,
 }
 
 pub fn spawn_event_thread(tx: async_channel::Sender<Event>) {
@@ -44,6 +46,8 @@ pub fn send(cmd: Cmd) {
         let request = match cmd {
             Cmd::Focus(id) => Request::Action(Action::FocusWindow { id }),
             Cmd::Close(id) => Request::Action(Action::CloseWindow { id: Some(id) }),
+            Cmd::WorkspaceUp => Request::Action(Action::FocusWorkspaceUp {}),
+            Cmd::WorkspaceDown => Request::Action(Action::FocusWorkspaceDown {}),
         };
         let mut socket = match Socket::connect() {
             Ok(socket) => socket,
