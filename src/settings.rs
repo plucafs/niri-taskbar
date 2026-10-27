@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Button, DropDown, Grid, Image, Label,
-    Orientation, ScrolledWindow, SpinButton, Switch,
+    Application, ApplicationWindow, Box as GtkBox, Button, ColorDialog, ColorDialogButton,
+    DropDown, Grid, Image, Label, Orientation, ScrolledWindow, SpinButton, Switch,
 };
 
 use crate::config::{
@@ -67,21 +67,17 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             .unwrap_or(0) as u32,
     );
 
-    let thickness = SpinButton::with_range(16.0, 128.0, 1.0);
-    thickness.set_value(config.thickness as f64);
-    attach_row(&grid, 3, "Bar height (px)", &thickness);
-
     let icon_size = SpinButton::with_range(12.0, 64.0, 1.0);
     icon_size.set_value(config.icon_size as f64);
-    attach_row(&grid, 4, "Icon size (px)", &icon_size);
+    attach_row(&grid, 3, "Icon size (px)", &icon_size);
 
     let group = Switch::new();
     group.set_active(config.group_by == GroupBy::App);
     group.set_halign(gtk::Align::Start);
     group.set_valign(gtk::Align::Center);
-    attach_row(&grid, 5, "Group windows by app", &group);
+    attach_row(&grid, 4, "Group windows by app", &group);
 
-    let sort = dropdown_row(&grid, 6, "Icon order", &SortMode::ALL.map(|s| s.label()));
+    let sort = dropdown_row(&grid, 5, "Icon order", &SortMode::ALL.map(|s| s.label()));
     sort.set_selected(
         SortMode::ALL
             .iter()
@@ -93,9 +89,9 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     show_settings.set_active(config.show_settings_icon);
     show_settings.set_halign(gtk::Align::Start);
     show_settings.set_valign(gtk::Align::Center);
-    attach_row(&grid, 7, "Show settings icon", &show_settings);
+    attach_row(&grid, 6, "Show settings icon", &show_settings);
 
-    let hover = dropdown_row(&grid, 8, "Hover info", &HoverInfo::ALL.map(|h| h.label()));
+    let hover = dropdown_row(&grid, 7, "Hover info", &HoverInfo::ALL.map(|h| h.label()));
     hover.set_selected(
         HoverInfo::ALL
             .iter()
@@ -105,7 +101,7 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
 
     let middle = dropdown_row(
         &grid,
-        9,
+        8,
         "Middle click",
         &MiddleClick::ALL.map(|m| m.label()),
     );
@@ -118,7 +114,7 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
 
     let icon_fallback = dropdown_row(
         &grid,
-        10,
+        9,
         "Missing icon fallback",
         &IconFallback::ALL.map(|f| f.label()),
     );
@@ -127,6 +123,14 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             .iter()
             .position(|f| *f == config.icon_fallback)
             .unwrap_or(0) as u32,
+    );
+
+    let bar_background = color_row(&grid, 10, "Bar background", &config.bar_background);
+    let inactive_background = color_row(
+        &grid,
+        11,
+        "Inactive item background",
+        &config.inactive_background,
     );
 
     let custom_idx = SortMode::ALL
@@ -219,7 +223,6 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             .get(layer.selected() as usize)
             .copied()
             .unwrap_or(config.bar_layer);
-        config.thickness = thickness.value().round().clamp(16.0, 128.0) as u32;
         config.icon_size = icon_size.value().round().clamp(12.0, 64.0) as u32;
         config.group_by = if group.is_active() {
             GroupBy::App
@@ -246,6 +249,8 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             .get(icon_fallback.selected() as usize)
             .copied()
             .unwrap_or(config.icon_fallback);
+        config.bar_background = color_string(&bar_background.rgba());
+        config.inactive_background = color_string(&inactive_background.rgba());
         config.save();
         bar_apply.apply_config(config);
     });
@@ -342,4 +347,28 @@ fn dropdown_row(grid: &Grid, row: i32, text: &str, options: &[&str]) -> DropDown
     dropdown.set_valign(gtk::Align::Center);
     attach_row(grid, row, text, &dropdown);
     dropdown
+}
+
+fn color_row(grid: &Grid, row: i32, text: &str, value: &str) -> ColorDialogButton {
+    let dialog = ColorDialog::new();
+    dialog.set_with_alpha(true);
+    let button = ColorDialogButton::new(Some(dialog));
+    button.set_rgba(&parse_color(value));
+    attach_row(grid, row, text, &button);
+    button
+}
+
+fn parse_color(value: &str) -> gtk::gdk::RGBA {
+    gtk::gdk::RGBA::parse(value).unwrap_or_else(|_| gtk::gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
+}
+
+fn color_string(rgba: &gtk::gdk::RGBA) -> String {
+    let alpha = (rgba.alpha() * 1000.0).round() / 1000.0;
+    format!(
+        "rgba({}, {}, {}, {})",
+        (rgba.red() * 255.0).round() as u32,
+        (rgba.green() * 255.0).round() as u32,
+        (rgba.blue() * 255.0).round() as u32,
+        alpha
+    )
 }

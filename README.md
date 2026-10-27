@@ -14,13 +14,21 @@ Taskbar for the niri Wayland compositor
 - Scroll on the bar to switch workspaces
 - Multiple windows per app: click to choose, scroll to cycle
 - Icon fallback for apps without icons: default icon or first two letters
-- Configurable bar height, icon size, and settings icon
+- Configurable icon size, bar background color, and settings icon
 
 ## Requirements
 - GTK 4 (v4.22+) and gtk4-layer-shell
 
 ## Download
 [Linux](https://github.com/plucafs/niri-taskbar/releases)
+
+## Autostart
+niri's default systemd service starts XDG autostart entries, so:
+```sh
+mkdir -p ~/.config/autostart
+cp data/niri-taskbar.desktop ~/.config/autostart/
+```
+If you run the AppImage, edit the copied file and point `Exec` at the AppImage path instead.
 
 ## Credits
 - [OpenCode](https://github.com/anomalyco/opencode)

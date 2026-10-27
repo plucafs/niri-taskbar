@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=niri-taskbar
+Comment=Taskbar for the niri Wayland compositor
+Exec=niri-taskbar
+Terminal=false

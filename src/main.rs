@@ -19,6 +19,8 @@ use niri_ipc::state::EventStreamStatePart;
 use config::{BarLayer, Config, HoverInfo, Position};
 use taskbar::Taskbar;
 
+const BAR_THICKNESS: i32 = 32;
+
 const CSS: &str = "
 .bar-window {
     background: transparent;
@@ -73,11 +75,13 @@ pub struct Bar {
     taskbar: RefCell<Taskbar>,
     config: Rc<RefCell<Config>>,
     overview_open: Cell<bool>,
+    css: CssProvider,
 }
 
 impl Bar {
     fn apply_config(&self, config: Config) {
         *self.config.borrow_mut() = config.clone();
+        self.css.load_from_string(&build_css(&config));
         let window = &self.window;
         let layer = if config.bar_layer == BarLayer::Top || !self.overview_open.get() {
             Layer::Top
@@ -88,7 +92,7 @@ impl Bar {
         for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
             window.set_anchor(edge, false);
         }
-        let thickness = config.thickness as i32;
+        let thickness = BAR_THICKNESS;
         match config.position {
             Position::Top => {
                 window.set_anchor(Edge::Top, true);
@@ -147,7 +151,7 @@ fn activate(app: &Application, config: Config) {
         window.present();
         return;
     }
-    install_css();
+    let css = install_css(&build_css(&config));
 
     let window = ApplicationWindow::new(app);
     window.init_layer_shell();
@@ -209,6 +213,7 @@ fn activate(app: &Application, config: Config) {
         taskbar: RefCell::new(taskbar),
         config: config_rc,
         overview_open: Cell::new(false),
+        css,
     });
 
     let bar_for_gear = Rc::clone(&bar);
@@ -272,9 +277,9 @@ fn activate(app: &Application, config: Config) {
     }
 }
 
-fn install_css() {
+fn install_css(css: &str) -> CssProvider {
     let provider = CssProvider::new();
-    provider.load_from_string(CSS);
+    provider.load_from_string(css);
     if let Some(display) = gtk::gdk::Display::default() {
         style_context_add_provider_for_display(
             &display,
@@ -282,4 +287,12 @@ fn install_css() {
             STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
+    provider
+}
+
+fn build_css(config: &Config) -> String {
+    format!(
+        "{CSS}\n.bar-window {{ background: {}; }}\nbutton.taskbar-button.inactive {{ background: {}; }}\n",
+        config.bar_background, config.inactive_background
+    )
 }
