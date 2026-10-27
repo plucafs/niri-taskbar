@@ -61,14 +61,62 @@ pub enum GroupBy {
     Window,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SortMode {
+    #[default]
+    LastOpened,
+    Alphabetical,
+    Custom,
+}
+
+impl SortMode {
+    pub const ALL: [SortMode; 3] = [
+        SortMode::LastOpened,
+        SortMode::Alphabetical,
+        SortMode::Custom,
+    ];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            SortMode::LastOpened => "Last opened at right",
+            SortMode::Alphabetical => "Alphabetical",
+            SortMode::Custom => "Custom",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BarLayer {
+    Top,
+    #[default]
+    Bottom,
+}
+
+impl BarLayer {
+    pub const ALL: [BarLayer; 2] = [BarLayer::Top, BarLayer::Bottom];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            BarLayer::Top => "Top (stays over overview)",
+            BarLayer::Bottom => "Bottom (zooms with overview)",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
     pub position: Position,
     pub icon_position: IconPosition,
+    pub bar_layer: BarLayer,
     pub thickness: u32,
     pub icon_size: u32,
     pub group_by: GroupBy,
+    pub sort_mode: SortMode,
+    pub custom_order: Vec<String>,
+    pub show_settings_icon: bool,
 }
 
 impl Default for Config {
@@ -76,9 +124,13 @@ impl Default for Config {
         Self {
             position: Position::Top,
             icon_position: IconPosition::Left,
+            bar_layer: BarLayer::Bottom,
             thickness: 32,
             icon_size: 22,
             group_by: GroupBy::App,
+            sort_mode: SortMode::LastOpened,
+            custom_order: Vec::new(),
+            show_settings_icon: true,
         }
     }
 }
@@ -118,6 +170,10 @@ impl Config {
 
     pub fn is_horizontal(&self) -> bool {
         matches!(self.position, Position::Top | Position::Bottom)
+    }
+
+    pub fn gear_size(&self) -> i32 {
+        self.icon_size as i32 + 14
     }
 }
 

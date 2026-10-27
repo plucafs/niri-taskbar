@@ -4,7 +4,7 @@ mod niri;
 mod settings;
 mod taskbar;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk::glib;
@@ -16,10 +16,8 @@ use gtk::{
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use niri_ipc::state::EventStreamStatePart;
 
-use config::{Config, Position};
+use config::{BarLayer, Config, Position};
 use taskbar::Taskbar;
-
-pub const GEAR_SIZE: i32 = 36;
 
 const CSS: &str = "
 .bar-window {
@@ -63,14 +61,22 @@ button.window-row-select:hover, button.window-row-close:hover {
 pub struct Bar {
     window: ApplicationWindow,
     root: GtkBox,
+    gear: Button,
     taskbar: RefCell<Taskbar>,
-    config: RefCell<Config>,
+    config: Rc<RefCell<Config>>,
+    overview_open: Cell<bool>,
 }
 
 impl Bar {
     fn apply_config(&self, config: Config) {
         *self.config.borrow_mut() = config.clone();
         let window = &self.window;
+        let layer = if config.bar_layer == BarLayer::Top || !self.overview_open.get() {
+            Layer::Top
+        } else {
+            Layer::Bottom
+        };
+        window.set_layer(layer);
         for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
             window.set_anchor(edge, false);
         }
@@ -107,6 +113,9 @@ impl Bar {
             Orientation::Vertical
         };
         self.root.set_orientation(orientation);
+        let gear_size = config.gear_size();
+        self.gear.set_size_request(gear_size, gear_size);
+        self.gear.set_visible(config.show_settings_icon);
         self.taskbar.borrow_mut().set_config(config);
     }
 }
@@ -168,18 +177,23 @@ fn activate(app: &Application, config: Config) {
     gear_image.set_pixel_size(22);
     let gear = Button::new();
     gear.set_child(Some(&gear_image));
-    gear.set_size_request(GEAR_SIZE, GEAR_SIZE);
+    let gear_size = config.gear_size();
+    gear.set_size_request(gear_size, gear_size);
+    gear.set_visible(config.show_settings_icon);
     gear.set_tooltip_text(Some("Settings"));
     gear.add_css_class("taskbar-button");
     gear.set_focusable(false);
     root.append(&gear);
 
-    let taskbar = Taskbar::new(&root, config.clone());
+    let config_rc = Rc::new(RefCell::new(config.clone()));
+    let taskbar = Taskbar::new(&root, Rc::clone(&config_rc));
     let bar = Rc::new(Bar {
         window,
         root,
+        gear: gear.clone(),
         taskbar: RefCell::new(taskbar),
-        config: RefCell::new(config.clone()),
+        config: config_rc,
+        overview_open: Cell::new(false),
     });
 
     let bar_for_gear = Rc::clone(&bar);
@@ -200,6 +214,21 @@ fn activate(app: &Application, config: Config) {
         while let Ok(event) = rx.recv().await {
             state.apply(event);
             bar_for_events.taskbar.borrow_mut().sync(&state);
+
+            let open = state.overview.is_open;
+            let prev = bar_for_events.overview_open.get();
+            if open != prev {
+                bar_for_events.overview_open.set(open);
+                let zoom = bar_for_events.config.borrow().bar_layer == BarLayer::Bottom;
+                if zoom {
+                    bar_for_events.taskbar.borrow().close_menus();
+                    bar_for_events.window.set_layer(if open {
+                        Layer::Bottom
+                    } else {
+                        Layer::Top
+                    });
+                }
+            }
         }
     });
 

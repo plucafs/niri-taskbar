@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 use gtk::glib::Propagation;
@@ -11,10 +11,9 @@ use gtk::{
 use niri_ipc::state::EventStreamState;
 use niri_ipc::Workspace;
 
-use crate::config::{Config, GroupBy, IconPosition, Position};
+use crate::config::{Config, GroupBy, IconPosition, Position, SortMode};
 use crate::icons;
 use crate::niri::{self, Cmd};
-use crate::GEAR_SIZE;
 
 #[derive(Clone)]
 pub struct WinInfo {
@@ -46,7 +45,7 @@ pub struct Taskbar {
     strip: GtkBox,
     spacer_after: GtkBox,
     filler: GtkBox,
-    config: Config,
+    config: Rc<RefCell<Config>>,
     entries: Entries,
     buttons: HashMap<String, Button>,
     popovers: HashMap<String, Popover>,
@@ -54,11 +53,16 @@ pub struct Taskbar {
     cursors: HashMap<String, Cursor>,
     open_menu: Rc<RefCell<Option<(String, MenuKind)>>>,
     open_signature: Rc<RefCell<Vec<u64>>>,
+    history: Rc<RefCell<VecDeque<u64>>>,
+    last_focused: Option<u64>,
+    appearance: Vec<String>,
+    strip_order: Vec<String>,
+    structure: Vec<(String, Vec<u64>)>,
 }
 
 impl Taskbar {
-    pub fn new(parent: &GtkBox, config: Config) -> Self {
-        let orientation = bar_orientation(&config);
+    pub fn new(parent: &GtkBox, config: Rc<RefCell<Config>>) -> Self {
+        let orientation = bar_orientation(&config.borrow());
         let spacer_before = GtkBox::new(orientation, 0);
         let strip = GtkBox::new(orientation, 6);
         strip.set_margin_start(4);
@@ -84,13 +88,18 @@ impl Taskbar {
             cursors: HashMap::new(),
             open_menu: Rc::new(RefCell::new(None)),
             open_signature: Rc::new(RefCell::new(Vec::new())),
+            history: Rc::new(RefCell::new(VecDeque::new())),
+            last_focused: None,
+            appearance: Vec::new(),
+            strip_order: Vec::new(),
+            structure: Vec::new(),
         };
         taskbar.apply_layout();
         taskbar
     }
 
     pub fn set_config(&mut self, config: Config) {
-        self.config = config;
+        *self.config.borrow_mut() = config;
         *self.open_menu.borrow_mut() = None;
         self.apply_layout();
         self.rebuild();
@@ -98,14 +107,15 @@ impl Taskbar {
     }
 
     fn apply_layout(&self) {
-        let orientation = bar_orientation(&self.config);
+        let config = self.config.borrow().clone();
+        let orientation = bar_orientation(&config);
         self.strip.set_orientation(orientation);
-        let (before, after, filler_size) = match self.config.icon_position {
+        let (before, after, filler_size) = match config.icon_position {
             IconPosition::Left => (false, true, 0),
-            IconPosition::Center => (true, true, GEAR_SIZE),
+            IconPosition::Center => (true, true, config.gear_size()),
             IconPosition::Right => (true, false, 0),
         };
-        if self.config.is_horizontal() {
+        if config.is_horizontal() {
             self.spacer_before.set_hexpand(before);
             self.spacer_after.set_hexpand(after);
             self.filler.set_size_request(filler_size, 1);
@@ -119,30 +129,67 @@ impl Taskbar {
     }
 
     pub fn sync(&mut self, state: &EventStreamState) {
-        let entries = build_entries(state, self.config.group_by);
+        let config = self.config.borrow().clone();
+        let entries = build_entries(state, config.group_by);
         *self.entries.borrow_mut() = entries;
-        self.sync_buttons();
+        let structure = structure_signature(&self.entries.borrow());
+        if structure != self.structure {
+            self.structure = structure;
+            self.sync_buttons();
+        }
         self.update_classes();
         self.refresh_open_menu();
+        self.update_history();
+    }
+
+    pub fn close_menus(&self) {
+        *self.open_menu.borrow_mut() = None;
+        for popover in self.popovers.values() {
+            popover.popdown();
+        }
+    }
+
+    pub fn ordered_entries(&self) -> Vec<(String, String)> {
+        self.strip_order
+            .iter()
+            .map(|key| {
+                let label = self
+                    .entries
+                    .borrow()
+                    .iter()
+                    .find(|entry| &entry.key == key)
+                    .map(|entry| {
+                        entry
+                            .app_id
+                            .clone()
+                            .unwrap_or_else(|| "(untitled)".to_string())
+                    })
+                    .unwrap_or_else(|| key.clone());
+                (key.clone(), label)
+            })
+            .collect()
     }
 
     fn sync_buttons(&mut self) {
+        let config = self.config.borrow().clone();
         let entries = self.entries.borrow();
         let keep: HashSet<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
+
+        let open_gone = self
+            .open_menu
+            .borrow()
+            .as_ref()
+            .is_some_and(|(key, _)| !keep.contains(key.as_str()));
+        if open_gone {
+            *self.open_menu.borrow_mut() = None;
+        }
+
         let stale: Vec<String> = self
             .buttons
             .keys()
             .filter(|key| !keep.contains(key.as_str()))
             .cloned()
             .collect();
-        let open_gone = self
-            .open_menu
-            .borrow()
-            .as_ref()
-            .is_some_and(|(key, _)| stale.contains(key));
-        if open_gone {
-            *self.open_menu.borrow_mut() = None;
-        }
         for key in stale {
             if let Some(button) = self.buttons.remove(&key) {
                 self.strip.remove(&button);
@@ -153,10 +200,20 @@ impl Taskbar {
             self.count_labels.remove(&key);
             self.cursors.remove(&key);
         }
+
+        self.appearance.retain(|key| keep.contains(key.as_str()));
+        self.strip_order.retain(|key| keep.contains(key.as_str()));
+        for entry in entries.iter() {
+            if !self.appearance.contains(&entry.key) {
+                self.appearance.push(entry.key.clone());
+            }
+        }
+
         for entry in entries.iter() {
             if !self.buttons.contains_key(&entry.key) {
                 let (button, popover, count, cursor) = self.build_button(entry);
                 self.strip.append(&button);
+                self.strip_order.push(entry.key.clone());
                 self.buttons.insert(entry.key.clone(), button);
                 self.popovers.insert(entry.key.clone(), popover);
                 self.count_labels.insert(entry.key.clone(), count);
@@ -169,9 +226,43 @@ impl Taskbar {
                     count.set_text(&windows.to_string());
                 }
             }
-            if let Some(button) = self.buttons.get(&entry.key) {
-                button.set_tooltip_text(Some(&tooltip(entry)));
+        }
+
+        let desired = desired_order(&config, &entries, &self.appearance);
+        drop(entries);
+        self.reorder_strip(&desired);
+    }
+
+    fn reorder_strip(&mut self, desired: &[String]) {
+        if self.strip_order.as_slice() == desired {
+            return;
+        }
+        for key in desired {
+            if let Some(button) = self.buttons.get(key) {
+                self.strip.remove(button);
+                self.strip.append(button);
             }
+        }
+        self.strip_order = desired.to_vec();
+    }
+
+    fn update_history(&mut self) {
+        let focused = self
+            .entries
+            .borrow()
+            .iter()
+            .flat_map(|entry| entry.windows.iter())
+            .find(|win| win.focused)
+            .map(|win| win.id);
+        if focused != self.last_focused {
+            if let Some(previous) = self.last_focused {
+                let mut history = self.history.borrow_mut();
+                if history.front() != Some(&previous) {
+                    history.push_front(previous);
+                    history.truncate(16);
+                }
+            }
+            self.last_focused = focused;
         }
     }
 
@@ -216,28 +307,44 @@ impl Taskbar {
         self.buttons.clear();
         self.count_labels.clear();
         self.cursors.clear();
-        let entries = self.entries.borrow();
-        for entry in entries.iter() {
-            let (button, popover, count, cursor) = self.build_button(entry);
-            self.strip.append(&button);
-            self.buttons.insert(entry.key.clone(), button);
-            self.popovers.insert(entry.key.clone(), popover);
-            self.count_labels.insert(entry.key.clone(), count);
-            self.cursors.insert(entry.key.clone(), cursor);
+        self.strip_order.clear();
+
+        let config = self.config.borrow().clone();
+        {
+            let entries = self.entries.borrow();
+            self.appearance
+                .retain(|key| entries.iter().any(|entry| entry.key == *key));
+            for entry in entries.iter() {
+                if !self.appearance.contains(&entry.key) {
+                    self.appearance.push(entry.key.clone());
+                }
+                let (button, popover, count, cursor) = self.build_button(entry);
+                self.strip.append(&button);
+                self.strip_order.push(entry.key.clone());
+                self.buttons.insert(entry.key.clone(), button);
+                self.popovers.insert(entry.key.clone(), popover);
+                self.count_labels.insert(entry.key.clone(), count);
+                self.cursors.insert(entry.key.clone(), cursor);
+            }
         }
+        let entries = self.entries.borrow();
+        let desired = desired_order(&config, &entries, &self.appearance);
+        drop(entries);
+        self.reorder_strip(&desired);
     }
 
     fn build_button(&self, entry: &Entry) -> (Button, Popover, Label, Cursor) {
+        let config = self.config.borrow().clone();
         let button = Button::new();
         button.add_css_class("taskbar-button");
         button.set_focusable(false);
 
-        let content = GtkBox::new(bar_orientation(&self.config), 4);
+        let content = GtkBox::new(bar_orientation(&config), 4);
         content.set_halign(Align::Center);
         content.set_valign(Align::Center);
         content.append(&icons::image_for_app(
             entry.app_id.as_deref(),
-            self.config.icon_size as i32,
+            config.icon_size as i32,
         ));
         let count = Label::new(Some(&entry.windows.len().to_string()));
         count.add_css_class("count");
@@ -248,7 +355,7 @@ impl Taskbar {
 
         let popover = Popover::new();
         popover.set_parent(&button);
-        popover.set_position(popover_position(self.config.position));
+        popover.set_position(popover_position(config.position));
         let cursor: Cursor = Rc::new(RefCell::new(None));
 
         let key_closed = entry.key.clone();
@@ -264,6 +371,7 @@ impl Taskbar {
         let entries = Rc::clone(&self.entries);
         let open_menu = Rc::clone(&self.open_menu);
         let open_signature = Rc::clone(&self.open_signature);
+        let history = Rc::clone(&self.history);
         let cursor_click = Rc::clone(&cursor);
         let popover_weak = popover.downgrade();
         button.connect_clicked(move |_| {
@@ -278,7 +386,22 @@ impl Taskbar {
                 return;
             };
             if entry.windows.len() == 1 {
-                niri::send(Cmd::Focus(entry.windows[0].id));
+                let win = &entry.windows[0];
+                if win.focused {
+                    let mut history = history.borrow_mut();
+                    while let Some(&previous) = history.front() {
+                        if entries
+                            .iter()
+                            .any(|entry| entry.windows.iter().any(|win| win.id == previous))
+                        {
+                            niri::send(Cmd::Focus(previous));
+                            break;
+                        }
+                        history.pop_front();
+                    }
+                } else {
+                    niri::send(Cmd::Focus(win.id));
+                }
                 return;
             }
             *open_signature.borrow_mut() = entry.windows.iter().map(|win| win.id).collect();
@@ -295,7 +418,7 @@ impl Taskbar {
         let popover_weak = popover.downgrade();
         let right_click = gtk::GestureClick::new();
         right_click.set_button(3);
-        right_click.connect_pressed(move |_, _, _, _| {
+        right_click.connect_released(move |_, _, _, _| {
             if std::env::var_os("BARTHING_DEBUG").is_some() {
                 eprintln!("CLICK right key={key:?}");
             }
@@ -369,6 +492,7 @@ impl Taskbar {
             };
             set_class(button, "focused", entry.windows.iter().any(|win| win.focused));
             set_class(button, "urgent", entry.windows.iter().any(|win| win.urgent));
+            button.set_tooltip_text(Some(&tooltip(entry)));
         }
     }
 
@@ -393,6 +517,58 @@ impl Taskbar {
                 )
             })
             .collect()
+    }
+}
+
+fn structure_signature(entries: &[Entry]) -> Vec<(String, Vec<u64>)> {
+    let mut signature: Vec<(String, Vec<u64>)> = entries
+        .iter()
+        .map(|entry| {
+            (
+                entry.key.clone(),
+                entry.windows.iter().map(|win| win.id).collect(),
+            )
+        })
+        .collect();
+    signature.sort();
+    signature
+}
+
+fn desired_order(config: &Config, entries: &[Entry], appearance: &[String]) -> Vec<String> {
+    let alive: Vec<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
+    match config.sort_mode {
+        SortMode::LastOpened => appearance
+            .iter()
+            .filter(|key| alive.contains(&key.as_str()))
+            .cloned()
+            .collect(),
+        SortMode::Alphabetical => {
+            let mut keys: Vec<String> = alive.iter().map(|key| key.to_string()).collect();
+            keys.sort_by(|a, b| {
+                if a.is_empty() {
+                    std::cmp::Ordering::Greater
+                } else if b.is_empty() {
+                    std::cmp::Ordering::Less
+                } else {
+                    a.to_lowercase().cmp(&b.to_lowercase())
+                }
+            });
+            keys
+        }
+        SortMode::Custom => {
+            let mut keys: Vec<String> = Vec::new();
+            for key in &config.custom_order {
+                if alive.contains(&key.as_str()) && !keys.contains(key) {
+                    keys.push(key.clone());
+                }
+            }
+            for key in appearance {
+                if alive.contains(&key.as_str()) && !keys.contains(key) {
+                    keys.push(key.clone());
+                }
+            }
+            keys
+        }
     }
 }
 
@@ -494,10 +670,7 @@ fn context_content(entry: &Entry, popover: &Popover, cursor: &Cursor) -> GtkBox 
 
     let open = menu_item("Open");
     let open_id = mru_window_id(entry);
-    let open_index = entry
-        .windows
-        .iter()
-        .position(|win| Some(win.id) == open_id);
+    let open_index = entry.windows.iter().position(|win| Some(win.id) == open_id);
     let cursor_open = Rc::clone(cursor);
     let popover_weak = popover.downgrade();
     open.connect_clicked(move |_| {
