@@ -3,7 +3,7 @@ Taskbar for the niri Wayland compositor
 
 ![screenshot taskbar and settings](assets/screenshot.png)
 
-# Features
+## Features
 - Vertical or horizontal bar (top, bottom, left, right)
 - Group windows by app or show each window separately
 - Icon order: last opened, alphabetical, or custom (reorder in settings)
@@ -16,7 +16,7 @@ Taskbar for the niri Wayland compositor
 - Icon fallback for apps without icons: default icon or first two letters
 - Configurable bar height, icon size, and settings icon
 
-# Requirements
+## Requirements
 - GTK 4 (v4.22+) and gtk4-layer-shell
 
 ## Download
