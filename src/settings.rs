@@ -29,7 +29,7 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
 
     let window = ApplicationWindow::new(app);
     window.set_title(Some(TITLE));
-    window.set_default_size(440, 520);
+    window.set_default_size(400, 520);
 
     let root = GtkBox::new(Orientation::Vertical, 10);
     root.set_margin_top(12);
@@ -59,17 +59,22 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     let scroll = ScrolledWindow::new();
     scroll.set_vexpand(true);
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    let page = GtkBox::new(Orientation::Vertical, 20);
-    scroll.set_child(Some(&page));
+    scroll.set_propagate_natural_width(true);
+    scroll.set_max_content_width(400);
+    let grid = Grid::new();
+    grid.set_row_spacing(10);
+    grid.set_column_spacing(16);
+    scroll.set_child(Some(&grid));
     root.append(&scroll);
 
-    let appearance_grid = Grid::new();
-    appearance_grid.set_row_spacing(10);
-    appearance_grid.set_column_spacing(16);
+    let mut row = 0;
+
+    section_header(&grid, row, "Appearance", true);
+    row += 1;
 
     let position = dropdown_row(
-        &appearance_grid,
-        0,
+        &grid,
+        &mut row,
         "Bar position",
         &Position::ALL.map(|p| p.label()),
     );
@@ -81,8 +86,8 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     );
 
     let icon_position = dropdown_row(
-        &appearance_grid,
-        1,
+        &grid,
+        &mut row,
         "Icon position",
         &IconPosition::ALL.map(|p| p.label()),
     );
@@ -94,8 +99,8 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     );
 
     let layer = dropdown_row(
-        &appearance_grid,
-        2,
+        &grid,
+        &mut row,
         "Bar layer",
         &BarLayer::ALL.map(|l| l.label()),
     );
@@ -108,34 +113,29 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
 
     let icon_size = SpinButton::with_range(12.0, 64.0, 1.0);
     icon_size.set_value(config.icon_size as f64);
-    attach_row(&appearance_grid, 3, "Icon size (px)", &icon_size);
+    attach_row(&grid, &mut row, "Icon size (px)", &icon_size);
 
     let icon_spacing = SpinButton::with_range(0.0, 32.0, 1.0);
     icon_spacing.set_value(config.icon_spacing as f64);
-    attach_row(&appearance_grid, 4, "Icon spacing (px)", &icon_spacing);
+    attach_row(&grid, &mut row, "Icon spacing (px)", &icon_spacing);
 
-    let bar_background = color_row(
-        &appearance_grid,
-        5,
-        "Bar background",
-        &config.bar_background,
-    );
+    let bar_background = color_row(&grid, &mut row, "Bar background", &config.bar_background);
     let focused_background = color_row(
-        &appearance_grid,
-        6,
+        &grid,
+        &mut row,
         "Focused-window color",
         &config.focused_background,
     );
     let unfocused_background = color_row(
-        &appearance_grid,
-        7,
+        &grid,
+        &mut row,
         "Unfocused-window color",
         &config.unfocused_background,
     );
 
     let indicator = dropdown_row(
-        &appearance_grid,
-        8,
+        &grid,
+        &mut row,
         "Focused indicator",
         &IndicatorMode::ALL.map(|m| m.label()),
     );
@@ -148,37 +148,25 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
 
     let show_settings = Switch::new();
     show_settings.set_active(config.show_settings_icon);
-    show_settings.set_halign(gtk::Align::Start);
-    show_settings.set_valign(gtk::Align::Center);
-    attach_row(&appearance_grid, 9, "Show settings icon", &show_settings);
+    attach_row(&grid, &mut row, "Show settings icon", &show_settings);
 
-    page.append(&section("Appearance", &appearance_grid));
-
-    let windows_grid = Grid::new();
-    windows_grid.set_row_spacing(10);
-    windows_grid.set_column_spacing(16);
+    section_header(&grid, row, "Windows", false);
+    row += 1;
 
     let show_title = Switch::new();
     show_title.set_active(config.show_window_title);
-    show_title.set_halign(gtk::Align::Start);
-    show_title.set_valign(gtk::Align::Center);
-    attach_row(&windows_grid, 0, "Show focused window title", &show_title);
+    attach_row(&grid, &mut row, "Show focused window title", &show_title);
 
-    page.append(&section("Windows", &windows_grid));
-
-    let behavior_grid = Grid::new();
-    behavior_grid.set_row_spacing(10);
-    behavior_grid.set_column_spacing(16);
+    section_header(&grid, row, "Behavior", false);
+    row += 1;
 
     let group = Switch::new();
     group.set_active(config.group_by == GroupBy::App);
-    group.set_halign(gtk::Align::Start);
-    group.set_valign(gtk::Align::Center);
-    attach_row(&behavior_grid, 0, "Group windows by app", &group);
+    attach_row(&grid, &mut row, "Group windows by app", &group);
 
     let sort = dropdown_row(
-        &behavior_grid,
-        1,
+        &grid,
+        &mut row,
         "Icon order",
         &SortMode::ALL.map(|s| s.label()),
     );
@@ -190,8 +178,8 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     );
 
     let hover = dropdown_row(
-        &behavior_grid,
-        2,
+        &grid,
+        &mut row,
         "Hover info",
         &HoverInfo::ALL.map(|h| h.label()),
     );
@@ -203,8 +191,8 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     );
 
     let middle = dropdown_row(
-        &behavior_grid,
-        3,
+        &grid,
+        &mut row,
         "Middle click",
         &MiddleClick::ALL.map(|m| m.label()),
     );
@@ -216,8 +204,8 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     );
 
     let icon_fallback = dropdown_row(
-        &behavior_grid,
-        4,
+        &grid,
+        &mut row,
         "Missing icon fallback",
         &IconFallback::ALL.map(|f| f.label()),
     );
@@ -227,38 +215,6 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             .position(|f| *f == config.icon_fallback)
             .unwrap_or(0) as u32,
     );
-
-    let behavior_section = section("Behavior", &behavior_grid);
-    page.append(&behavior_section);
-
-    let notifications_grid = Grid::new();
-    notifications_grid.set_row_spacing(10);
-    notifications_grid.set_column_spacing(16);
-
-    let urgent_animation = Switch::new();
-    urgent_animation.set_active(config.urgent_animation);
-    urgent_animation.set_halign(gtk::Align::Start);
-    urgent_animation.set_valign(gtk::Align::Center);
-    attach_row(
-        &notifications_grid,
-        0,
-        "Pulse urgent windows",
-        &urgent_animation,
-    );
-
-    page.append(&section("Notifications", &notifications_grid));
-
-    let power_grid = Grid::new();
-    power_grid.set_row_spacing(10);
-    power_grid.set_column_spacing(16);
-
-    let show_power = Switch::new();
-    show_power.set_active(config.show_power_icon);
-    show_power.set_halign(gtk::Align::Start);
-    show_power.set_valign(gtk::Align::Center);
-    attach_row(&power_grid, 0, "Show power icon", &show_power);
-
-    page.append(&section("Power Menu", &power_grid));
 
     let custom_idx = SortMode::ALL
         .iter()
@@ -295,12 +251,16 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     let order_label = Label::new(Some("Custom order"));
     order_label.set_halign(gtk::Align::Start);
     order_label.set_margin_top(4);
+    grid.attach(&order_label, 0, row, 2, 1);
+    row += 1;
 
     let order_box = GtkBox::new(Orientation::Vertical, 4);
     let order_scroll = ScrolledWindow::new();
     order_scroll.set_child(Some(&order_box));
     order_scroll.set_min_content_height(140);
-    order_scroll.set_vexpand(true);
+    order_scroll.set_hexpand(true);
+    grid.attach(&order_scroll, 0, row, 2, 1);
+    row += 1;
 
     rebuild_order_rows(&order_box, &keys, &labels);
 
@@ -317,8 +277,19 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
         });
     }
 
-    behavior_section.append(&order_label);
-    behavior_section.append(&order_scroll);
+    section_header(&grid, row, "Notifications", false);
+    row += 1;
+
+    let urgent_animation = Switch::new();
+    urgent_animation.set_active(config.urgent_animation);
+    attach_row(&grid, &mut row, "Pulse urgent windows", &urgent_animation);
+
+    section_header(&grid, row, "Power Menu", false);
+    row += 1;
+
+    let show_power = Switch::new();
+    show_power.set_active(config.show_power_icon);
+    attach_row(&grid, &mut row, "Show power icon", &show_power);
 
     let bar_apply = bar.clone();
     let keys_apply = Rc::clone(&keys);
@@ -380,14 +351,14 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     window.present();
 }
 
-fn section(title: &str, content: &impl IsA<gtk::Widget>) -> GtkBox {
-    let container = GtkBox::new(Orientation::Vertical, 8);
+fn section_header(grid: &Grid, row: i32, title: &str, first: bool) {
     let heading = Label::new(Some(title));
     heading.add_css_class("settings-heading");
     heading.set_halign(gtk::Align::Start);
-    container.append(&heading);
-    container.append(content);
-    container
+    if !first {
+        heading.set_margin_top(12);
+    }
+    grid.attach(&heading, 0, row, 2, 1);
 }
 
 fn rebuild_order_rows(
@@ -464,20 +435,22 @@ fn label(text: &str) -> Label {
     label
 }
 
-fn attach_row<W: IsA<gtk::Widget>>(grid: &Grid, row: i32, text: &str, control: &W) {
-    grid.attach(&label(text), 0, row, 1, 1);
+fn attach_row<W: IsA<gtk::Widget>>(grid: &Grid, row: &mut i32, text: &str, control: &W) {
+    grid.attach(&label(text), 0, *row, 1, 1);
     control.set_halign(gtk::Align::End);
     control.set_valign(gtk::Align::Center);
-    grid.attach(control, 1, row, 1, 1);
+    control.set_hexpand(true);
+    grid.attach(control, 1, *row, 1, 1);
+    *row += 1;
 }
 
-fn dropdown_row(grid: &Grid, row: i32, text: &str, options: &[&str]) -> DropDown {
+fn dropdown_row(grid: &Grid, row: &mut i32, text: &str, options: &[&str]) -> DropDown {
     let dropdown = DropDown::from_strings(options);
     attach_row(grid, row, text, &dropdown);
     dropdown
 }
 
-fn color_row(grid: &Grid, row: i32, text: &str, value: &str) -> ColorDialogButton {
+fn color_row(grid: &Grid, row: &mut i32, text: &str, value: &str) -> ColorDialogButton {
     let dialog = ColorDialog::new();
     dialog.set_with_alpha(true);
     let button = ColorDialogButton::new(Some(dialog));

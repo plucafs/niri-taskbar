@@ -73,7 +73,7 @@ button.window-row-select:hover, button.window-row-close:hover {
 }
 .settings-heading {
     font-weight: bold;
-    font-size: 1.05em;
+    font-size: 1.5em;
 }
 .power-error {
     color: rgb(255, 120, 120);
@@ -105,15 +105,6 @@ impl Bar {
             Layer::Bottom
         };
         window.set_layer(layer);
-        for pos_class in ["pos-top", "pos-bottom", "pos-left", "pos-right"] {
-            window.remove_css_class(pos_class);
-        }
-        window.add_css_class(match config.position {
-            Position::Top => "pos-top",
-            Position::Bottom => "pos-bottom",
-            Position::Left => "pos-left",
-            Position::Right => "pos-right",
-        });
         self.apply_geometry(config.position, BAR_THICKNESS);
         window.auto_exclusive_zone_enable();
         let orientation = if config.is_horizontal() {
@@ -348,18 +339,9 @@ fn build_css(config: &Config) -> String {
         ));
     }
     if config.indicator_mode.has_underline() {
-        let color = &config.focused_background;
         css.push_str(&format!(
-            ".bar-window.pos-top button.taskbar-button.focused {{ box-shadow: inset 0 -3px 0 {color}; }}\n"
-        ));
-        css.push_str(&format!(
-            ".bar-window.pos-bottom button.taskbar-button.focused {{ box-shadow: inset 0 3px 0 {color}; }}\n"
-        ));
-        css.push_str(&format!(
-            ".bar-window.pos-left button.taskbar-button.focused {{ box-shadow: inset -3px 0 0 {color}; }}\n"
-        ));
-        css.push_str(&format!(
-            ".bar-window.pos-right button.taskbar-button.focused {{ box-shadow: inset 3px 0 0 {color}; }}\n"
+            "button.taskbar-button.focused {{ box-shadow: inset 0 -3px 0 {}; }}\n",
+            config.focused_background
         ));
     }
     css
