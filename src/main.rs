@@ -44,6 +44,11 @@ count, .count {
     font-size: 10px;
     opacity: 0.85;
 }
+.app-initials {
+    font-size: 11px;
+    font-weight: bold;
+    opacity: 0.9;
+}
 .window-menu {
     min-width: 240px;
 }
@@ -116,6 +121,11 @@ impl Bar {
         let gear_size = config.gear_size();
         self.gear.set_size_request(gear_size, gear_size);
         self.gear.set_visible(config.show_settings_icon);
+        if config.show_tooltips {
+            self.gear.set_tooltip_text(Some("Settings"));
+        } else {
+            self.gear.set_tooltip_text(None);
+        }
         self.taskbar.borrow_mut().set_config(config);
     }
 }
@@ -180,7 +190,9 @@ fn activate(app: &Application, config: Config) {
     let gear_size = config.gear_size();
     gear.set_size_request(gear_size, gear_size);
     gear.set_visible(config.show_settings_icon);
-    gear.set_tooltip_text(Some("Settings"));
+    if config.show_tooltips {
+        gear.set_tooltip_text(Some("Settings"));
+    }
     gear.add_css_class("taskbar-button");
     gear.set_focusable(false);
     root.append(&gear);

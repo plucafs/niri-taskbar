@@ -8,7 +8,7 @@ use gtk::{
     Orientation, ScrolledWindow, SpinButton, Switch,
 };
 
-use crate::config::{BarLayer, Config, GroupBy, IconPosition, Position, SortMode};
+use crate::config::{BarLayer, Config, GroupBy, IconFallback, IconPosition, Position, SortMode};
 use crate::Bar;
 
 const TITLE: &str = "barthing settings";
@@ -64,17 +64,21 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             .unwrap_or(0) as u32,
     );
 
+    let thickness = SpinButton::with_range(16.0, 128.0, 1.0);
+    thickness.set_value(config.thickness as f64);
+    attach_row(&grid, 3, "Bar height (px)", &thickness);
+
     let icon_size = SpinButton::with_range(12.0, 64.0, 1.0);
     icon_size.set_value(config.icon_size as f64);
-    attach_row(&grid, 3, "Icon size (px)", &icon_size);
+    attach_row(&grid, 4, "Icon size (px)", &icon_size);
 
     let group = Switch::new();
     group.set_active(config.group_by == GroupBy::App);
-    group.set_halign(gtk::Align::End);
+    group.set_halign(gtk::Align::Start);
     group.set_valign(gtk::Align::Center);
-    attach_row(&grid, 4, "Group windows by app", &group);
+    attach_row(&grid, 5, "Group windows by app", &group);
 
-    let sort = dropdown_row(&grid, 5, "Icon order", &SortMode::ALL.map(|s| s.label()));
+    let sort = dropdown_row(&grid, 6, "Icon order", &SortMode::ALL.map(|s| s.label()));
     sort.set_selected(
         SortMode::ALL
             .iter()
@@ -84,9 +88,28 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
 
     let show_settings = Switch::new();
     show_settings.set_active(config.show_settings_icon);
-    show_settings.set_halign(gtk::Align::End);
+    show_settings.set_halign(gtk::Align::Start);
     show_settings.set_valign(gtk::Align::Center);
-    attach_row(&grid, 6, "Show settings icon", &show_settings);
+    attach_row(&grid, 7, "Show settings icon", &show_settings);
+
+    let show_tooltips = Switch::new();
+    show_tooltips.set_active(config.show_tooltips);
+    show_tooltips.set_halign(gtk::Align::Start);
+    show_tooltips.set_valign(gtk::Align::Center);
+    attach_row(&grid, 8, "Show hover info", &show_tooltips);
+
+    let icon_fallback = dropdown_row(
+        &grid,
+        9,
+        "Missing icon fallback",
+        &IconFallback::ALL.map(|f| f.label()),
+    );
+    icon_fallback.set_selected(
+        IconFallback::ALL
+            .iter()
+            .position(|f| *f == config.icon_fallback)
+            .unwrap_or(0) as u32,
+    );
 
     let custom_idx = SortMode::ALL
         .iter()
@@ -178,6 +201,7 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             .get(layer.selected() as usize)
             .copied()
             .unwrap_or(config.bar_layer);
+        config.thickness = thickness.value().round().clamp(16.0, 128.0) as u32;
         config.icon_size = icon_size.value().round().clamp(12.0, 64.0) as u32;
         config.group_by = if group.is_active() {
             GroupBy::App
@@ -192,6 +216,11 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             config.custom_order = keys_apply.borrow().clone();
         }
         config.show_settings_icon = show_settings.is_active();
+        config.show_tooltips = show_tooltips.is_active();
+        config.icon_fallback = IconFallback::ALL
+            .get(icon_fallback.selected() as usize)
+            .copied()
+            .unwrap_or(config.icon_fallback);
         config.save();
         bar_apply.apply_config(config);
     });
@@ -284,7 +313,8 @@ fn attach_row<W: IsA<gtk::Widget>>(grid: &Grid, row: i32, text: &str, control: &
 
 fn dropdown_row(grid: &Grid, row: i32, text: &str, options: &[&str]) -> DropDown {
     let dropdown = DropDown::from_strings(options);
-    dropdown.set_halign(gtk::Align::End);
+    dropdown.set_halign(gtk::Align::Start);
+    dropdown.set_valign(gtk::Align::Center);
     attach_row(grid, row, text, &dropdown);
     dropdown
 }

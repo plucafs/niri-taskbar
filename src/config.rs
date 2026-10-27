@@ -88,6 +88,25 @@ impl SortMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
+pub enum IconFallback {
+    #[default]
+    Default,
+    Initials,
+}
+
+impl IconFallback {
+    pub const ALL: [IconFallback; 2] = [IconFallback::Default, IconFallback::Initials];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            IconFallback::Default => "Default icon",
+            IconFallback::Initials => "First two letters",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum BarLayer {
     Top,
     #[default]
@@ -117,6 +136,8 @@ pub struct Config {
     pub sort_mode: SortMode,
     pub custom_order: Vec<String>,
     pub show_settings_icon: bool,
+    pub show_tooltips: bool,
+    pub icon_fallback: IconFallback,
 }
 
 impl Default for Config {
@@ -131,6 +152,8 @@ impl Default for Config {
             sort_mode: SortMode::LastOpened,
             custom_order: Vec::new(),
             show_settings_icon: true,
+            show_tooltips: true,
+            icon_fallback: IconFallback::Default,
         }
     }
 }

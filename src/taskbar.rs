@@ -345,13 +345,16 @@ impl Taskbar {
         content.append(&icons::image_for_app(
             entry.app_id.as_deref(),
             config.icon_size as i32,
+            config.icon_fallback,
         ));
         let count = Label::new(Some(&entry.windows.len().to_string()));
         count.add_css_class("count");
         count.set_visible(entry.windows.len() > 1);
         content.append(&count);
         button.set_child(Some(&content));
-        button.set_tooltip_text(Some(&tooltip(entry)));
+        if config.show_tooltips {
+            button.set_tooltip_text(Some(&tooltip(entry)));
+        }
 
         let popover = Popover::new();
         popover.set_parent(&button);
@@ -492,7 +495,11 @@ impl Taskbar {
             };
             set_class(button, "focused", entry.windows.iter().any(|win| win.focused));
             set_class(button, "urgent", entry.windows.iter().any(|win| win.urgent));
-            button.set_tooltip_text(Some(&tooltip(entry)));
+            if self.config.borrow().show_tooltips {
+                button.set_tooltip_text(Some(&tooltip(entry)));
+            } else {
+                button.set_tooltip_text(None);
+            }
         }
     }
 
