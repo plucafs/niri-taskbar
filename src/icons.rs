@@ -1,6 +1,6 @@
 use gtk::pango;
 use gtk::prelude::*;
-use gtk::{gdk, Align, IconLookupFlags, IconTheme, Image, Label, TextDirection, Widget};
+use gtk::{Align, IconLookupFlags, IconTheme, Image, Label, TextDirection, Widget, gdk};
 
 use crate::config::IconFallback;
 
@@ -42,11 +42,7 @@ fn initials(app_id: Option<&str>) -> String {
         .rsplit('.')
         .find(|part| !part.is_empty())
         .unwrap_or(name);
-    let letters: String = word
-        .chars()
-        .filter(|c| c.is_alphabetic())
-        .take(2)
-        .collect();
+    let letters: String = word.chars().filter(|c| c.is_alphabetic()).take(2).collect();
     if letters.is_empty() {
         "?".to_string()
     } else {

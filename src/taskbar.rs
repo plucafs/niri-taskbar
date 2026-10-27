@@ -1,15 +1,16 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
+use std::time::Duration;
 
-use gtk::glib::Propagation;
+use gtk::glib::{self, Propagation};
 use gtk::prelude::*;
 use gtk::{
     Align, Box as GtkBox, Button, EventControllerScroll, EventControllerScrollFlags, Image, Label,
     Orientation, Popover, PositionType,
 };
-use niri_ipc::state::EventStreamState;
 use niri_ipc::Workspace;
+use niri_ipc::state::EventStreamState;
 
 use crate::config::{Config, GroupBy, HoverInfo, IconPosition, MiddleClick, Position, SortMode};
 use crate::icons;
@@ -51,7 +52,11 @@ pub struct Taskbar {
     popovers: HashMap<String, Popover>,
     previews: HashMap<String, Popover>,
     count_labels: HashMap<String, Label>,
+    title_labels: HashMap<String, Label>,
     cursors: HashMap<String, Cursor>,
+    pulse_buttons: Rc<RefCell<Vec<Button>>>,
+    pulse_source: RefCell<Option<glib::SourceId>>,
+    pulse_on: Rc<Cell<bool>>,
     open_menu: Rc<RefCell<Option<(String, MenuKind)>>>,
     open_signature: Rc<RefCell<Vec<u64>>>,
     history: Rc<RefCell<VecDeque<u64>>>,
@@ -66,7 +71,7 @@ impl Taskbar {
     pub fn new(parent: &GtkBox, config: Rc<RefCell<Config>>) -> Self {
         let orientation = bar_orientation(&config.borrow());
         let spacer_before = GtkBox::new(orientation, 0);
-        let strip = GtkBox::new(orientation, 6);
+        let strip = GtkBox::new(orientation, config.borrow().icon_spacing as i32);
         strip.set_margin_start(4);
         strip.set_margin_end(4);
         strip.set_margin_top(2);
@@ -88,7 +93,11 @@ impl Taskbar {
             popovers: HashMap::new(),
             previews: HashMap::new(),
             count_labels: HashMap::new(),
+            title_labels: HashMap::new(),
             cursors: HashMap::new(),
+            pulse_buttons: Rc::new(RefCell::new(Vec::new())),
+            pulse_source: RefCell::new(None),
+            pulse_on: Rc::new(Cell::new(false)),
             open_menu: Rc::new(RefCell::new(None)),
             open_signature: Rc::new(RefCell::new(Vec::new())),
             history: Rc::new(RefCell::new(VecDeque::new())),
@@ -114,6 +123,7 @@ impl Taskbar {
         let config = self.config.borrow().clone();
         let orientation = bar_orientation(&config);
         self.strip.set_orientation(orientation);
+        self.strip.set_spacing(config.icon_spacing as i32);
         let (before, after, filler_size) = match config.icon_position {
             IconPosition::Left => (false, true, 0),
             IconPosition::Center => (true, true, config.gear_size()),
@@ -224,6 +234,7 @@ impl Taskbar {
                 preview.unparent();
             }
             self.count_labels.remove(&key);
+            self.title_labels.remove(&key);
             self.cursors.remove(&key);
         }
 
@@ -237,7 +248,7 @@ impl Taskbar {
 
         for entry in entries.iter() {
             if !self.buttons.contains_key(&entry.key) {
-                let (button, popover, preview, count, cursor) = self.build_button(entry);
+                let (button, popover, preview, count, title, cursor) = self.build_button(entry);
                 self.strip.append(&button);
                 self.strip_order.push(entry.key.clone());
                 self.buttons.insert(entry.key.clone(), button);
@@ -246,6 +257,7 @@ impl Taskbar {
                     self.previews.insert(entry.key.clone(), preview);
                 }
                 self.count_labels.insert(entry.key.clone(), count);
+                self.title_labels.insert(entry.key.clone(), title);
                 self.cursors.insert(entry.key.clone(), cursor);
             }
             let windows = entry.windows.len();
@@ -319,18 +331,15 @@ impl Taskbar {
             return;
         }
         *self.open_signature.borrow_mut() = ids;
-        let (Some(popover), Some(cursor)) = (self.popovers.get(&key), self.cursors.get(&key)) else {
+        let (Some(popover), Some(cursor)) = (self.popovers.get(&key), self.cursors.get(&key))
+        else {
             return;
         };
         let content = match kind {
             MenuKind::Chooser => chooser_content(entry, popover, cursor),
-            MenuKind::Context => context_content(
-                entry,
-                popover,
-                cursor,
-                &self.config,
-                &self.config_changed,
-            ),
+            MenuKind::Context => {
+                context_content(entry, popover, cursor, &self.config, &self.config_changed)
+            }
         };
         popover.set_child(Some(&content));
     }
@@ -347,6 +356,7 @@ impl Taskbar {
         }
         self.buttons.clear();
         self.count_labels.clear();
+        self.title_labels.clear();
         self.cursors.clear();
         self.strip_order.clear();
 
@@ -378,7 +388,7 @@ impl Taskbar {
                 if !self.appearance.contains(&entry.key) {
                     self.appearance.push(entry.key.clone());
                 }
-                let (button, popover, preview, count, cursor) = self.build_button(entry);
+                let (button, popover, preview, count, title, cursor) = self.build_button(entry);
                 self.strip.append(&button);
                 self.strip_order.push(entry.key.clone());
                 self.buttons.insert(entry.key.clone(), button);
@@ -387,6 +397,7 @@ impl Taskbar {
                     self.previews.insert(entry.key.clone(), preview);
                 }
                 self.count_labels.insert(entry.key.clone(), count);
+                self.title_labels.insert(entry.key.clone(), title);
                 self.cursors.insert(entry.key.clone(), cursor);
             }
         }
@@ -396,7 +407,10 @@ impl Taskbar {
         self.reorder_strip(&desired);
     }
 
-    fn build_button(&self, entry: &Entry) -> (Button, Popover, Option<Popover>, Label, Cursor) {
+    fn build_button(
+        &self,
+        entry: &Entry,
+    ) -> (Button, Popover, Option<Popover>, Label, Label, Cursor) {
         let config = self.config.borrow().clone();
         let button = Button::new();
         button.add_css_class("taskbar-button");
@@ -417,6 +431,12 @@ impl Taskbar {
         count.add_css_class("count");
         count.set_visible(entry.windows.len() > 1);
         content.append(&count);
+        let title = Label::new(None);
+        title.add_css_class("window-title");
+        title.set_visible(false);
+        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        title.set_max_width_chars(32);
+        content.append(&title);
         button.set_child(Some(&content));
         if config.hover_info == HoverInfo::Tooltip {
             button.set_tooltip_text(Some(&tooltip(entry)));
@@ -625,23 +645,84 @@ impl Taskbar {
         });
         button.add_controller(scroll);
 
-        (button, popover, preview, count, cursor)
+        (button, popover, preview, count, title, cursor)
     }
 
     fn update_classes(&self) {
         let entries = self.entries.borrow();
+        let config = self.config.borrow().clone();
+        let show_titles = config.show_window_title && config.is_horizontal();
         for entry in entries.iter() {
             let Some(button) = self.buttons.get(&entry.key) else {
                 continue;
             };
-            set_class(button, "focused", entry.windows.iter().any(|win| win.focused));
-            set_class(button, "urgent", entry.windows.iter().any(|win| win.urgent));
-            if self.config.borrow().hover_info == HoverInfo::Tooltip {
+            let focused = entry.windows.iter().any(|win| win.focused);
+            let urgent = entry.windows.iter().any(|win| win.urgent);
+            set_class(button, "focused", focused);
+            set_class(button, "urgent", urgent);
+            set_class(button, "unfocused", !focused && !urgent);
+            if let Some(title_label) = self.title_labels.get(&entry.key) {
+                let title = if show_titles {
+                    entry.windows.iter().find(|win| win.focused)
+                } else {
+                    None
+                };
+                match title {
+                    Some(win) => {
+                        title_label.set_text(&win.title);
+                        title_label.set_visible(true);
+                    }
+                    None => title_label.set_visible(false),
+                }
+            }
+            if config.hover_info == HoverInfo::Tooltip {
                 button.set_tooltip_text(Some(&tooltip(entry)));
             } else {
                 button.set_tooltip_text(None);
             }
         }
+        self.update_pulse(&entries);
+    }
+
+    fn update_pulse(&self, entries: &[Entry]) {
+        let config = self.config.borrow().clone();
+        let urgent_buttons: Vec<Button> = entries
+            .iter()
+            .filter(|entry| entry.windows.iter().any(|win| win.urgent))
+            .filter_map(|entry| self.buttons.get(&entry.key))
+            .cloned()
+            .collect();
+        let should_run = !urgent_buttons.is_empty() && config.urgent_animation && !reduced_motion();
+        *self.pulse_buttons.borrow_mut() = urgent_buttons;
+        if !should_run {
+            self.stop_pulse();
+            return;
+        }
+        if self.pulse_source.borrow().is_some() {
+            return;
+        }
+        let buttons = Rc::clone(&self.pulse_buttons);
+        let on = Rc::clone(&self.pulse_on);
+        let source = glib::timeout_add_local(Duration::from_millis(500), move || {
+            let next = !on.get();
+            on.set(next);
+            for button in buttons.borrow().iter() {
+                set_class(button, "pulse", next);
+            }
+            glib::ControlFlow::Continue
+        });
+        *self.pulse_source.borrow_mut() = Some(source);
+    }
+
+    fn stop_pulse(&self) {
+        if let Some(source) = self.pulse_source.borrow_mut().take() {
+            source.remove();
+        }
+        self.pulse_on.set(false);
+        for button in self.pulse_buttons.borrow().iter() {
+            set_class(button, "pulse", false);
+        }
+        self.pulse_buttons.borrow_mut().clear();
     }
 
     #[allow(deprecated)]
@@ -936,7 +1017,7 @@ fn bar_orientation(config: &Config) -> Orientation {
     }
 }
 
-fn popover_position(position: Position) -> PositionType {
+pub fn popover_position(position: Position) -> PositionType {
     match position {
         Position::Top => PositionType::Bottom,
         Position::Bottom => PositionType::Top,
@@ -1049,4 +1130,11 @@ fn set_class(widget: &impl IsA<gtk::Widget>, class: &str, enabled: bool) {
     } else {
         widget.remove_css_class(class);
     }
+}
+
+fn reduced_motion() -> bool {
+    gtk::Settings::default().is_some_and(|settings| {
+        settings.gtk_interface_reduced_motion() == gtk::ReducedMotion::Reduce
+            || !settings.is_gtk_enable_animations()
+    })
 }

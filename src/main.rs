@@ -1,6 +1,7 @@
 mod config;
 mod icons;
 mod niri;
+mod power;
 mod settings;
 mod taskbar;
 
@@ -10,8 +11,8 @@ use std::rc::Rc;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk::{
-    style_context_add_provider_for_display, Application, ApplicationWindow, Box as GtkBox,
-    Button, CssProvider, Orientation, STYLE_PROVIDER_PRIORITY_APPLICATION,
+    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Orientation,
+    STYLE_PROVIDER_PRIORITY_APPLICATION, style_context_add_provider_for_display,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use niri_ipc::state::EventStreamStatePart;
@@ -36,11 +37,11 @@ button.taskbar-button {
 button.taskbar-button:hover {
     background: rgba(255, 255, 255, 0.10);
 }
-button.taskbar-button.focused {
-    background: rgba(255, 255, 255, 0.18);
-}
 button.taskbar-button.urgent {
     background: rgba(220, 80, 80, 0.45);
+}
+button.taskbar-button.urgent.pulse {
+    background: rgba(255, 130, 130, 0.85);
 }
 button.taskbar-button.inactive {
     opacity: 0.45;
@@ -48,6 +49,10 @@ button.taskbar-button.inactive {
 count, .count {
     font-size: 10px;
     opacity: 0.85;
+}
+.window-title {
+    font-size: 11px;
+    min-width: 0;
 }
 .app-initials {
     font-size: 11px;
@@ -66,12 +71,23 @@ button.window-row-select, button.window-row-close {
 button.window-row-select:hover, button.window-row-close:hover {
     background: rgba(255, 255, 255, 0.10);
 }
+.settings-heading {
+    font-weight: bold;
+    font-size: 1.05em;
+}
+.power-error {
+    color: rgb(255, 120, 120);
+    font-size: 11px;
+    margin-top: 6px;
+    margin-bottom: 4px;
+}
 ";
 
 pub struct Bar {
     window: ApplicationWindow,
     root: GtkBox,
     gear: Button,
+    power: power::PowerMenu,
     taskbar: RefCell<Taskbar>,
     config: Rc<RefCell<Config>>,
     overview_open: Cell<bool>,
@@ -89,11 +105,42 @@ impl Bar {
             Layer::Bottom
         };
         window.set_layer(layer);
+        for pos_class in ["pos-top", "pos-bottom", "pos-left", "pos-right"] {
+            window.remove_css_class(pos_class);
+        }
+        window.add_css_class(match config.position {
+            Position::Top => "pos-top",
+            Position::Bottom => "pos-bottom",
+            Position::Left => "pos-left",
+            Position::Right => "pos-right",
+        });
+        self.apply_geometry(config.position, BAR_THICKNESS);
+        window.auto_exclusive_zone_enable();
+        let orientation = if config.is_horizontal() {
+            Orientation::Horizontal
+        } else {
+            Orientation::Vertical
+        };
+        self.root.set_orientation(orientation);
+        let gear_size = config.gear_size();
+        self.gear.set_size_request(gear_size, gear_size);
+        self.gear.set_visible(config.show_settings_icon);
+        self.power.button.set_size_request(gear_size, gear_size);
+        self.power.set_visible(config.show_power_icon);
+        if config.hover_info == HoverInfo::Tooltip {
+            self.gear.set_tooltip_text(Some("Settings"));
+        } else {
+            self.gear.set_tooltip_text(None);
+        }
+        self.taskbar.borrow_mut().set_config(config);
+    }
+
+    fn apply_geometry(&self, position: Position, thickness: i32) {
+        let window = &self.window;
         for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
             window.set_anchor(edge, false);
         }
-        let thickness = BAR_THICKNESS;
-        match config.position {
+        match position {
             Position::Top => {
                 window.set_anchor(Edge::Top, true);
                 window.set_anchor(Edge::Left, true);
@@ -119,21 +166,6 @@ impl Bar {
                 window.set_default_size(thickness, 0);
             }
         }
-        let orientation = if config.is_horizontal() {
-            Orientation::Horizontal
-        } else {
-            Orientation::Vertical
-        };
-        self.root.set_orientation(orientation);
-        let gear_size = config.gear_size();
-        self.gear.set_size_request(gear_size, gear_size);
-        self.gear.set_visible(config.show_settings_icon);
-        if config.hover_info == HoverInfo::Tooltip {
-            self.gear.set_tooltip_text(Some("Settings"));
-        } else {
-            self.gear.set_tooltip_text(None);
-        }
-        self.taskbar.borrow_mut().set_config(config);
     }
 }
 
@@ -204,12 +236,18 @@ fn activate(app: &Application, config: Config) {
     gear.set_focusable(false);
     root.append(&gear);
 
+    let power = power::PowerMenu::new(config.position);
+    power.button.set_size_request(gear_size, gear_size);
+    power.set_visible(config.show_power_icon);
+    root.append(&power.button);
+
     let config_rc = Rc::new(RefCell::new(config.clone()));
     let taskbar = Taskbar::new(&root, Rc::clone(&config_rc));
     let bar = Rc::new(Bar {
         window,
         root,
         gear: gear.clone(),
+        power,
         taskbar: RefCell::new(taskbar),
         config: config_rc,
         overview_open: Cell::new(false),
@@ -223,6 +261,15 @@ fn activate(app: &Application, config: Config) {
             eprintln!("CLICK gear");
         }
         settings::open(&app_for_settings, &bar_for_gear);
+    });
+
+    let bar_for_power = Rc::clone(&bar);
+    bar.power.button.connect_clicked(move |_| {
+        if std::env::var_os("niri-taskbar_DEBUG").is_some() {
+            eprintln!("CLICK power");
+        }
+        let position = bar_for_power.config.borrow().position;
+        bar_for_power.power.open(position);
     });
 
     let bar_for_pin = Rc::clone(&bar);
@@ -248,11 +295,10 @@ fn activate(app: &Application, config: Config) {
                 let zoom = bar_for_events.config.borrow().bar_layer == BarLayer::Bottom;
                 if zoom {
                     bar_for_events.taskbar.borrow().close_menus();
-                    bar_for_events.window.set_layer(if open {
-                        Layer::Bottom
-                    } else {
-                        Layer::Top
-                    });
+                    bar_for_events.power.close();
+                    bar_for_events
+                        .window
+                        .set_layer(if open { Layer::Bottom } else { Layer::Top });
                 }
             }
         }
@@ -291,8 +337,30 @@ fn install_css(css: &str) -> CssProvider {
 }
 
 fn build_css(config: &Config) -> String {
-    format!(
-        "{CSS}\n.bar-window {{ background: {}; }}\nbutton.taskbar-button.inactive {{ background: {}; }}\n",
-        config.bar_background, config.inactive_background
-    )
+    let mut css = format!(
+        "{CSS}\n.bar-window {{ background: {}; }}\nbutton.taskbar-button.unfocused {{ background: {}; }}\n",
+        config.bar_background, config.unfocused_background
+    );
+    if config.indicator_mode.has_background() {
+        css.push_str(&format!(
+            "button.taskbar-button.focused {{ background: {}; }}\n",
+            config.focused_background
+        ));
+    }
+    if config.indicator_mode.has_underline() {
+        let color = &config.focused_background;
+        css.push_str(&format!(
+            ".bar-window.pos-top button.taskbar-button.focused {{ box-shadow: inset 0 -3px 0 {color}; }}\n"
+        ));
+        css.push_str(&format!(
+            ".bar-window.pos-bottom button.taskbar-button.focused {{ box-shadow: inset 0 3px 0 {color}; }}\n"
+        ));
+        css.push_str(&format!(
+            ".bar-window.pos-left button.taskbar-button.focused {{ box-shadow: inset -3px 0 0 {color}; }}\n"
+        ));
+        css.push_str(&format!(
+            ".bar-window.pos-right button.taskbar-button.focused {{ box-shadow: inset 3px 0 0 {color}; }}\n"
+        ));
+    }
+    css
 }

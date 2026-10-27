@@ -14,7 +14,12 @@ Taskbar for the niri Wayland compositor
 - Scroll on the bar to switch workspaces
 - Multiple windows per app: click to choose, scroll to cycle
 - Icon fallback for apps without icons: default icon or first two letters
-- Configurable icon size, bar background color, and settings icon
+- Configurable icon size, icon spacing, and three colors (bar, focused, unfocused)
+- Focused-window indicator: background, underline, or both
+- Optional focused window title (horizontal bars)
+- Pulsing urgent-window animation (respects reduced motion)
+- Power menu: lock (swaylock), suspend, hibernate, restart, shut down (unsupported actions disabled)
+- Sectioned settings page: Appearance, Windows, Behavior, Notifications, Power Menu
 
 ## Requirements
 - GTK 4 (v4.22+) and gtk4-layer-shell

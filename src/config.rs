@@ -117,8 +117,11 @@ pub enum MiddleClick {
 }
 
 impl MiddleClick {
-    pub const ALL: [MiddleClick; 3] =
-        [MiddleClick::Close, MiddleClick::NewWindow, MiddleClick::Focus];
+    pub const ALL: [MiddleClick; 3] = [
+        MiddleClick::Close,
+        MiddleClick::NewWindow,
+        MiddleClick::Focus,
+    ];
 
     pub fn label(&self) -> &'static str {
         match self {
@@ -167,6 +170,39 @@ impl BarLayer {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum IndicatorMode {
+    #[default]
+    Background,
+    Underline,
+    Both,
+}
+
+impl IndicatorMode {
+    pub const ALL: [IndicatorMode; 3] = [
+        IndicatorMode::Background,
+        IndicatorMode::Underline,
+        IndicatorMode::Both,
+    ];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            IndicatorMode::Background => "Background",
+            IndicatorMode::Underline => "Underline",
+            IndicatorMode::Both => "Background and underline",
+        }
+    }
+
+    pub fn has_background(&self) -> bool {
+        matches!(self, IndicatorMode::Background | IndicatorMode::Both)
+    }
+
+    pub fn has_underline(&self) -> bool {
+        matches!(self, IndicatorMode::Underline | IndicatorMode::Both)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
@@ -174,8 +210,14 @@ pub struct Config {
     pub icon_position: IconPosition,
     pub bar_layer: BarLayer,
     pub icon_size: u32,
+    pub icon_spacing: u32,
     pub bar_background: String,
-    pub inactive_background: String,
+    pub focused_background: String,
+    pub unfocused_background: String,
+    pub indicator_mode: IndicatorMode,
+    pub show_window_title: bool,
+    pub urgent_animation: bool,
+    pub show_power_icon: bool,
     pub group_by: GroupBy,
     pub sort_mode: SortMode,
     pub custom_order: Vec<String>,
@@ -189,20 +231,26 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            position: Position::Top,
+            position: Position::Bottom,
             icon_position: IconPosition::Left,
             bar_layer: BarLayer::Bottom,
-            icon_size: 22,
-            bar_background: "transparent".to_string(),
-            inactive_background: "transparent".to_string(),
+            icon_size: 26,
+            icon_spacing: 4,
+            bar_background: "rgba(0, 0, 0, 0)".to_string(),
+            focused_background: "rgba(0, 0, 0, 0.82)".to_string(),
+            unfocused_background: "rgba(0, 0, 0, 0.317)".to_string(),
+            indicator_mode: IndicatorMode::Both,
+            show_window_title: true,
+            urgent_animation: true,
+            show_power_icon: true,
             group_by: GroupBy::App,
             sort_mode: SortMode::LastOpened,
             custom_order: Vec::new(),
             show_settings_icon: true,
             hover_info: HoverInfo::Tooltip,
-            middle_click: MiddleClick::Close,
+            middle_click: MiddleClick::NewWindow,
             pinned_apps: Vec::new(),
-            icon_fallback: IconFallback::Default,
+            icon_fallback: IconFallback::Initials,
         }
     }
 }
