@@ -6,6 +6,7 @@ pub enum Cmd {
     Close(u64),
     WorkspaceUp,
     WorkspaceDown,
+    Spawn(Vec<String>),
 }
 
 pub fn spawn_event_thread(tx: async_channel::Sender<Event>) {
@@ -48,6 +49,7 @@ pub fn send(cmd: Cmd) {
             Cmd::Close(id) => Request::Action(Action::CloseWindow { id: Some(id) }),
             Cmd::WorkspaceUp => Request::Action(Action::FocusWorkspaceUp {}),
             Cmd::WorkspaceDown => Request::Action(Action::FocusWorkspaceDown {}),
+            Cmd::Spawn(command) => Request::Action(Action::Spawn { command }),
         };
         let mut socket = match Socket::connect() {
             Ok(socket) => socket,

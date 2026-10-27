@@ -11,7 +11,7 @@ use gtk::{
 use niri_ipc::state::EventStreamState;
 use niri_ipc::Workspace;
 
-use crate::config::{Config, GroupBy, IconPosition, Position, SortMode};
+use crate::config::{Config, GroupBy, HoverInfo, IconPosition, MiddleClick, Position, SortMode};
 use crate::icons;
 use crate::niri::{self, Cmd};
 
@@ -49,11 +49,13 @@ pub struct Taskbar {
     entries: Entries,
     buttons: HashMap<String, Button>,
     popovers: HashMap<String, Popover>,
+    previews: HashMap<String, Popover>,
     count_labels: HashMap<String, Label>,
     cursors: HashMap<String, Cursor>,
     open_menu: Rc<RefCell<Option<(String, MenuKind)>>>,
     open_signature: Rc<RefCell<Vec<u64>>>,
     history: Rc<RefCell<VecDeque<u64>>>,
+    config_changed: Rc<RefCell<Option<Rc<dyn Fn()>>>>,
     last_focused: Option<u64>,
     appearance: Vec<String>,
     strip_order: Vec<String>,
@@ -84,11 +86,13 @@ impl Taskbar {
             entries: Rc::new(RefCell::new(Vec::new())),
             buttons: HashMap::new(),
             popovers: HashMap::new(),
+            previews: HashMap::new(),
             count_labels: HashMap::new(),
             cursors: HashMap::new(),
             open_menu: Rc::new(RefCell::new(None)),
             open_signature: Rc::new(RefCell::new(Vec::new())),
             history: Rc::new(RefCell::new(VecDeque::new())),
+            config_changed: Rc::new(RefCell::new(None)),
             last_focused: None,
             appearance: Vec::new(),
             strip_order: Vec::new(),
@@ -130,7 +134,19 @@ impl Taskbar {
 
     pub fn sync(&mut self, state: &EventStreamState) {
         let config = self.config.borrow().clone();
-        let entries = build_entries(state, config.group_by);
+        let mut entries = build_entries(state, config.group_by);
+        for app_id in &config.pinned_apps {
+            if !entries
+                .iter()
+                .any(|entry| entry.app_id.as_deref() == Some(app_id.as_str()))
+            {
+                entries.push(Entry {
+                    key: app_id.clone(),
+                    app_id: Some(app_id.clone()),
+                    windows: Vec::new(),
+                });
+            }
+        }
         *self.entries.borrow_mut() = entries;
         let structure = structure_signature(&self.entries.borrow());
         if structure != self.structure {
@@ -142,10 +158,17 @@ impl Taskbar {
         self.update_history();
     }
 
+    pub fn set_config_changed(&self, callback: Rc<dyn Fn()>) {
+        *self.config_changed.borrow_mut() = Some(callback);
+    }
+
     pub fn close_menus(&self) {
         *self.open_menu.borrow_mut() = None;
         for popover in self.popovers.values() {
             popover.popdown();
+        }
+        for preview in self.previews.values() {
+            preview.popdown();
         }
     }
 
@@ -197,6 +220,9 @@ impl Taskbar {
             if let Some(popover) = self.popovers.remove(&key) {
                 popover.unparent();
             }
+            if let Some(preview) = self.previews.remove(&key) {
+                preview.unparent();
+            }
             self.count_labels.remove(&key);
             self.cursors.remove(&key);
         }
@@ -211,11 +237,14 @@ impl Taskbar {
 
         for entry in entries.iter() {
             if !self.buttons.contains_key(&entry.key) {
-                let (button, popover, count, cursor) = self.build_button(entry);
+                let (button, popover, preview, count, cursor) = self.build_button(entry);
                 self.strip.append(&button);
                 self.strip_order.push(entry.key.clone());
                 self.buttons.insert(entry.key.clone(), button);
                 self.popovers.insert(entry.key.clone(), popover);
+                if let Some(preview) = preview {
+                    self.previews.insert(entry.key.clone(), preview);
+                }
                 self.count_labels.insert(entry.key.clone(), count);
                 self.cursors.insert(entry.key.clone(), cursor);
             }
@@ -225,6 +254,9 @@ impl Taskbar {
                 if windows > 1 {
                     count.set_text(&windows.to_string());
                 }
+            }
+            if let Some(button) = self.buttons.get(&entry.key) {
+                set_class(button, "inactive", windows == 0);
             }
         }
 
@@ -292,7 +324,13 @@ impl Taskbar {
         };
         let content = match kind {
             MenuKind::Chooser => chooser_content(entry, popover, cursor),
-            MenuKind::Context => context_content(entry, popover, cursor),
+            MenuKind::Context => context_content(
+                entry,
+                popover,
+                cursor,
+                &self.config,
+                &self.config_changed,
+            ),
         };
         popover.set_child(Some(&content));
     }
@@ -300,6 +338,9 @@ impl Taskbar {
     fn rebuild(&mut self) {
         for (_, popover) in self.popovers.drain() {
             popover.unparent();
+        }
+        for (_, preview) in self.previews.drain() {
+            preview.unparent();
         }
         while let Some(child) = self.strip.first_child() {
             self.strip.remove(&child);
@@ -311,18 +352,40 @@ impl Taskbar {
 
         let config = self.config.borrow().clone();
         {
-            let entries = self.entries.borrow();
+            let mut entries = self.entries.borrow_mut();
+            entries.retain(|entry| {
+                !entry.windows.is_empty()
+                    || entry
+                        .app_id
+                        .as_deref()
+                        .is_some_and(|app| config.pinned_apps.iter().any(|p| p == app))
+            });
+            for app_id in &config.pinned_apps {
+                if !entries
+                    .iter()
+                    .any(|entry| entry.app_id.as_deref() == Some(app_id.as_str()))
+                {
+                    entries.push(Entry {
+                        key: app_id.clone(),
+                        app_id: Some(app_id.clone()),
+                        windows: Vec::new(),
+                    });
+                }
+            }
             self.appearance
                 .retain(|key| entries.iter().any(|entry| entry.key == *key));
             for entry in entries.iter() {
                 if !self.appearance.contains(&entry.key) {
                     self.appearance.push(entry.key.clone());
                 }
-                let (button, popover, count, cursor) = self.build_button(entry);
+                let (button, popover, preview, count, cursor) = self.build_button(entry);
                 self.strip.append(&button);
                 self.strip_order.push(entry.key.clone());
                 self.buttons.insert(entry.key.clone(), button);
                 self.popovers.insert(entry.key.clone(), popover);
+                if let Some(preview) = preview {
+                    self.previews.insert(entry.key.clone(), preview);
+                }
                 self.count_labels.insert(entry.key.clone(), count);
                 self.cursors.insert(entry.key.clone(), cursor);
             }
@@ -333,11 +396,14 @@ impl Taskbar {
         self.reorder_strip(&desired);
     }
 
-    fn build_button(&self, entry: &Entry) -> (Button, Popover, Label, Cursor) {
+    fn build_button(&self, entry: &Entry) -> (Button, Popover, Option<Popover>, Label, Cursor) {
         let config = self.config.borrow().clone();
         let button = Button::new();
         button.add_css_class("taskbar-button");
         button.set_focusable(false);
+        if entry.windows.is_empty() {
+            button.add_css_class("inactive");
+        }
 
         let content = GtkBox::new(bar_orientation(&config), 4);
         content.set_halign(Align::Center);
@@ -352,13 +418,51 @@ impl Taskbar {
         count.set_visible(entry.windows.len() > 1);
         content.append(&count);
         button.set_child(Some(&content));
-        if config.show_tooltips {
+        if config.hover_info == HoverInfo::Tooltip {
             button.set_tooltip_text(Some(&tooltip(entry)));
         }
 
         let popover = Popover::new();
         popover.set_parent(&button);
         popover.set_position(popover_position(config.position));
+        let preview = if config.hover_info == HoverInfo::Preview && !entry.windows.is_empty() {
+            let preview = Popover::new();
+            preview.set_parent(&button);
+            preview.set_position(popover_position(config.position));
+            preview.set_autohide(false);
+            let entries = Rc::clone(&self.entries);
+            let key = entry.key.clone();
+            let preview_weak = preview.downgrade();
+            let motion = gtk::EventControllerMotion::new();
+            motion.connect_enter(move |_, _, _| {
+                let Some(preview) = preview_weak.upgrade() else {
+                    return;
+                };
+                if preview.is_visible() {
+                    return;
+                }
+                let entries = entries.borrow();
+                let Some(entry) = entries.iter().find(|entry| entry.key == key) else {
+                    return;
+                };
+                if entry.windows.is_empty() {
+                    return;
+                }
+                let list = preview_content(entry);
+                preview.set_child(Some(&list));
+                preview.popup();
+            });
+            let preview_weak = preview.downgrade();
+            motion.connect_leave(move |_| {
+                if let Some(preview) = preview_weak.upgrade() {
+                    preview.popdown();
+                }
+            });
+            button.add_controller(motion);
+            Some(preview)
+        } else {
+            None
+        };
         let cursor: Cursor = Rc::new(RefCell::new(None));
 
         let key_closed = entry.key.clone();
@@ -377,9 +481,13 @@ impl Taskbar {
         let history = Rc::clone(&self.history);
         let cursor_click = Rc::clone(&cursor);
         let popover_weak = popover.downgrade();
+        let preview_click = preview.as_ref().map(|p| p.downgrade());
         button.connect_clicked(move |_| {
             if std::env::var_os("BARTHING_DEBUG").is_some() {
                 eprintln!("CLICK left key={key:?}");
+            }
+            if let Some(preview) = preview_click.as_ref().and_then(|w| w.upgrade()) {
+                preview.popdown();
             }
             let Some(popover) = popover_weak.upgrade() else {
                 return;
@@ -388,6 +496,12 @@ impl Taskbar {
             let Some(entry) = entries.iter().find(|entry| entry.key == key) else {
                 return;
             };
+            if entry.windows.is_empty() {
+                if let Some(app_id) = entry.app_id.clone() {
+                    niri::send(Cmd::Spawn(vec![app_id]));
+                }
+                return;
+            }
             if entry.windows.len() == 1 {
                 let win = &entry.windows[0];
                 if win.focused {
@@ -418,12 +532,18 @@ impl Taskbar {
         let open_menu = Rc::clone(&self.open_menu);
         let open_signature = Rc::clone(&self.open_signature);
         let cursor_open = Rc::clone(&cursor);
+        let config_ctx = Rc::clone(&self.config);
+        let config_changed_ctx = Rc::clone(&self.config_changed);
         let popover_weak = popover.downgrade();
+        let preview_context = preview.as_ref().map(|p| p.downgrade());
         let right_click = gtk::GestureClick::new();
         right_click.set_button(3);
         right_click.connect_released(move |_, _, _, _| {
             if std::env::var_os("BARTHING_DEBUG").is_some() {
                 eprintln!("CLICK right key={key:?}");
+            }
+            if let Some(preview) = preview_context.as_ref().and_then(|w| w.upgrade()) {
+                preview.popdown();
             }
             let Some(popover) = popover_weak.upgrade() else {
                 return;
@@ -434,13 +554,20 @@ impl Taskbar {
             };
             *open_signature.borrow_mut() = entry.windows.iter().map(|win| win.id).collect();
             *open_menu.borrow_mut() = Some((key.clone(), MenuKind::Context));
-            let content = context_content(entry, &popover, &cursor_open);
+            let content = context_content(
+                entry,
+                &popover,
+                &cursor_open,
+                &config_ctx,
+                &config_changed_ctx,
+            );
             open_popover(&popover, content);
         });
         button.add_controller(right_click);
 
         let key = entry.key.clone();
         let entries = Rc::clone(&self.entries);
+        let middle_action = config.middle_click;
         let middle_click = gtk::GestureClick::new();
         middle_click.set_button(2);
         middle_click.connect_pressed(move |_, _, _, _| {
@@ -451,8 +578,22 @@ impl Taskbar {
             let Some(entry) = entries.iter().find(|entry| entry.key == key) else {
                 return;
             };
-            if let Some(id) = mru_window_id(entry) {
-                niri::send(Cmd::Close(id));
+            match middle_action {
+                MiddleClick::Close => {
+                    if let Some(id) = mru_window_id(entry) {
+                        niri::send(Cmd::Close(id));
+                    }
+                }
+                MiddleClick::NewWindow => {
+                    if let Some(app_id) = entry.app_id.clone() {
+                        niri::send(Cmd::Spawn(vec![app_id]));
+                    }
+                }
+                MiddleClick::Focus => {
+                    if let Some(id) = mru_window_id(entry) {
+                        niri::send(Cmd::Focus(id));
+                    }
+                }
             }
         });
         button.add_controller(middle_click);
@@ -484,7 +625,7 @@ impl Taskbar {
         });
         button.add_controller(scroll);
 
-        (button, popover, count, cursor)
+        (button, popover, preview, count, cursor)
     }
 
     fn update_classes(&self) {
@@ -495,7 +636,7 @@ impl Taskbar {
             };
             set_class(button, "focused", entry.windows.iter().any(|win| win.focused));
             set_class(button, "urgent", entry.windows.iter().any(|win| win.urgent));
-            if self.config.borrow().show_tooltips {
+            if self.config.borrow().hover_info == HoverInfo::Tooltip {
                 button.set_tooltip_text(Some(&tooltip(entry)));
             } else {
                 button.set_tooltip_text(None);
@@ -543,7 +684,13 @@ fn structure_signature(entries: &[Entry]) -> Vec<(String, Vec<u64>)> {
 
 fn desired_order(config: &Config, entries: &[Entry], appearance: &[String]) -> Vec<String> {
     let alive: Vec<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
-    match config.sort_mode {
+    let mut keys: Vec<String> = Vec::new();
+    for pinned in &config.pinned_apps {
+        if alive.contains(&pinned.as_str()) && !keys.contains(pinned) {
+            keys.push(pinned.clone());
+        }
+    }
+    let rest: Vec<String> = match config.sort_mode {
         SortMode::LastOpened => appearance
             .iter()
             .filter(|key| alive.contains(&key.as_str()))
@@ -576,7 +723,13 @@ fn desired_order(config: &Config, entries: &[Entry], appearance: &[String]) -> V
             }
             keys
         }
+    };
+    for key in rest {
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
     }
+    keys
 }
 
 fn cycle_window(entry: &Entry, step: i32, cursor: &Cursor) {
@@ -671,12 +824,23 @@ fn chooser_content(entry: &Entry, popover: &Popover, cursor: &Cursor) -> GtkBox 
     list
 }
 
-fn context_content(entry: &Entry, popover: &Popover, cursor: &Cursor) -> GtkBox {
+fn context_content(
+    entry: &Entry,
+    popover: &Popover,
+    cursor: &Cursor,
+    config: &Rc<RefCell<Config>>,
+    config_changed: &Rc<RefCell<Option<Rc<dyn Fn()>>>>,
+) -> GtkBox {
     let list = GtkBox::new(Orientation::Vertical, 2);
     list.add_css_class("window-menu");
 
     let open = menu_item("Open");
     let open_id = mru_window_id(entry);
+    let open_app = if entry.windows.is_empty() {
+        entry.app_id.clone()
+    } else {
+        None
+    };
     let open_index = entry.windows.iter().position(|win| Some(win.id) == open_id);
     let cursor_open = Rc::clone(cursor);
     let popover_weak = popover.downgrade();
@@ -686,6 +850,8 @@ fn context_content(entry: &Entry, popover: &Popover, cursor: &Cursor) -> GtkBox 
                 *cursor_open.borrow_mut() = Some(index);
             }
             niri::send(Cmd::Focus(id));
+        } else if let Some(app_id) = open_app.clone() {
+            niri::send(Cmd::Spawn(vec![app_id]));
         }
         if let Some(popover) = popover_weak.upgrade() {
             popover.popdown();
@@ -693,11 +859,38 @@ fn context_content(entry: &Entry, popover: &Popover, cursor: &Cursor) -> GtkBox 
     });
     list.append(&open);
 
+    if let Some(app_id) = entry.app_id.clone() {
+        let pinned = config.borrow().pinned_apps.contains(&app_id);
+        let pin = menu_item(if pinned { "Unpin" } else { "Pin" });
+        let config = Rc::clone(config);
+        let config_changed = Rc::clone(config_changed);
+        let popover_weak = popover.downgrade();
+        pin.connect_clicked(move |_| {
+            if let Some(popover) = popover_weak.upgrade() {
+                popover.popdown();
+            }
+            {
+                let mut config = config.borrow_mut();
+                if let Some(pos) = config.pinned_apps.iter().position(|p| *p == app_id) {
+                    config.pinned_apps.remove(pos);
+                } else {
+                    config.pinned_apps.push(app_id.clone());
+                }
+                config.save();
+            }
+            if let Some(callback) = config_changed.borrow().as_ref() {
+                callback();
+            }
+        });
+        list.append(&pin);
+    }
+
     let close = menu_item(if entry.windows.len() > 1 {
         "Close all"
     } else {
         "Close"
     });
+    close.set_sensitive(!entry.windows.is_empty());
     let close_ids: Vec<u64> = entry.windows.iter().map(|win| win.id).collect();
     let popover_weak = popover.downgrade();
     close.connect_clicked(move |_| {
@@ -815,10 +1008,39 @@ fn tooltip(entry: &Entry) -> String {
         .app_id
         .clone()
         .unwrap_or_else(|| "(untitled)".to_string());
+    if entry.windows.is_empty() {
+        return format!("{name}\n(not running)");
+    }
     match entry.windows.len() {
         1 => format!("{name}\n{}", entry.windows[0].title),
         n => format!("{name}\n{n} windows"),
     }
+}
+
+fn preview_content(entry: &Entry) -> GtkBox {
+    let list = GtkBox::new(Orientation::Vertical, 2);
+    list.add_css_class("window-menu");
+    for win in &entry.windows {
+        let row = GtkBox::new(Orientation::Horizontal, 6);
+        row.set_margin_top(3);
+        row.set_margin_bottom(3);
+        row.set_margin_start(6);
+        row.set_margin_end(6);
+
+        let title = Label::new(Some(&win.title));
+        title.set_halign(Align::Start);
+        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        title.set_max_width_chars(42);
+        row.append(&title);
+
+        if !win.ws_label.is_empty() {
+            let ws = Label::new(Some(&win.ws_label));
+            ws.add_css_class("dim-label");
+            row.append(&ws);
+        }
+        list.append(&row);
+    }
+    list
 }
 
 fn set_class(widget: &impl IsA<gtk::Widget>, class: &str, enabled: bool) {

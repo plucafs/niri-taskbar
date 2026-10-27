@@ -88,6 +88,49 @@ impl SortMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
+pub enum HoverInfo {
+    #[default]
+    Tooltip,
+    Preview,
+    Off,
+}
+
+impl HoverInfo {
+    pub const ALL: [HoverInfo; 3] = [HoverInfo::Tooltip, HoverInfo::Preview, HoverInfo::Off];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            HoverInfo::Tooltip => "Tooltip",
+            HoverInfo::Preview => "Window list",
+            HoverInfo::Off => "Off",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MiddleClick {
+    #[default]
+    Close,
+    NewWindow,
+    Focus,
+}
+
+impl MiddleClick {
+    pub const ALL: [MiddleClick; 3] =
+        [MiddleClick::Close, MiddleClick::NewWindow, MiddleClick::Focus];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            MiddleClick::Close => "Close window",
+            MiddleClick::NewWindow => "Open new window",
+            MiddleClick::Focus => "Focus window",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum IconFallback {
     #[default]
     Default,
@@ -136,7 +179,9 @@ pub struct Config {
     pub sort_mode: SortMode,
     pub custom_order: Vec<String>,
     pub show_settings_icon: bool,
-    pub show_tooltips: bool,
+    pub hover_info: HoverInfo,
+    pub middle_click: MiddleClick,
+    pub pinned_apps: Vec<String>,
     pub icon_fallback: IconFallback,
 }
 
@@ -152,7 +197,9 @@ impl Default for Config {
             sort_mode: SortMode::LastOpened,
             custom_order: Vec::new(),
             show_settings_icon: true,
-            show_tooltips: true,
+            hover_info: HoverInfo::Tooltip,
+            middle_click: MiddleClick::Close,
+            pinned_apps: Vec::new(),
             icon_fallback: IconFallback::Default,
         }
     }

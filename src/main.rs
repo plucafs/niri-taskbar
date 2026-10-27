@@ -16,7 +16,7 @@ use gtk::{
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use niri_ipc::state::EventStreamStatePart;
 
-use config::{BarLayer, Config, Position};
+use config::{BarLayer, Config, HoverInfo, Position};
 use taskbar::Taskbar;
 
 const CSS: &str = "
@@ -39,6 +39,9 @@ button.taskbar-button.focused {
 }
 button.taskbar-button.urgent {
     background: rgba(220, 80, 80, 0.45);
+}
+button.taskbar-button.inactive {
+    opacity: 0.45;
 }
 count, .count {
     font-size: 10px;
@@ -121,7 +124,7 @@ impl Bar {
         let gear_size = config.gear_size();
         self.gear.set_size_request(gear_size, gear_size);
         self.gear.set_visible(config.show_settings_icon);
-        if config.show_tooltips {
+        if config.hover_info == HoverInfo::Tooltip {
             self.gear.set_tooltip_text(Some("Settings"));
         } else {
             self.gear.set_tooltip_text(None);
@@ -190,7 +193,7 @@ fn activate(app: &Application, config: Config) {
     let gear_size = config.gear_size();
     gear.set_size_request(gear_size, gear_size);
     gear.set_visible(config.show_settings_icon);
-    if config.show_tooltips {
+    if config.hover_info == HoverInfo::Tooltip {
         gear.set_tooltip_text(Some("Settings"));
     }
     gear.add_css_class("taskbar-button");
@@ -216,6 +219,12 @@ fn activate(app: &Application, config: Config) {
         }
         settings::open(&app_for_settings, &bar_for_gear);
     });
+
+    let bar_for_pin = Rc::clone(&bar);
+    bar.taskbar.borrow().set_config_changed(Rc::new(move || {
+        let config = bar_for_pin.config.borrow().clone();
+        bar_for_pin.apply_config(config);
+    }));
 
     let (tx, rx) = async_channel::unbounded();
     niri::spawn_event_thread(tx);

@@ -8,7 +8,10 @@ use gtk::{
     Orientation, ScrolledWindow, SpinButton, Switch,
 };
 
-use crate::config::{BarLayer, Config, GroupBy, IconFallback, IconPosition, Position, SortMode};
+use crate::config::{
+    BarLayer, Config, GroupBy, HoverInfo, IconFallback, IconPosition, MiddleClick, Position,
+    SortMode,
+};
 use crate::Bar;
 
 const TITLE: &str = "barthing settings";
@@ -92,15 +95,30 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     show_settings.set_valign(gtk::Align::Center);
     attach_row(&grid, 7, "Show settings icon", &show_settings);
 
-    let show_tooltips = Switch::new();
-    show_tooltips.set_active(config.show_tooltips);
-    show_tooltips.set_halign(gtk::Align::Start);
-    show_tooltips.set_valign(gtk::Align::Center);
-    attach_row(&grid, 8, "Show hover info", &show_tooltips);
+    let hover = dropdown_row(&grid, 8, "Hover info", &HoverInfo::ALL.map(|h| h.label()));
+    hover.set_selected(
+        HoverInfo::ALL
+            .iter()
+            .position(|h| *h == config.hover_info)
+            .unwrap_or(0) as u32,
+    );
+
+    let middle = dropdown_row(
+        &grid,
+        9,
+        "Middle click",
+        &MiddleClick::ALL.map(|m| m.label()),
+    );
+    middle.set_selected(
+        MiddleClick::ALL
+            .iter()
+            .position(|m| *m == config.middle_click)
+            .unwrap_or(0) as u32,
+    );
 
     let icon_fallback = dropdown_row(
         &grid,
-        9,
+        10,
         "Missing icon fallback",
         &IconFallback::ALL.map(|f| f.label()),
     );
@@ -216,7 +234,14 @@ pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
             config.custom_order = keys_apply.borrow().clone();
         }
         config.show_settings_icon = show_settings.is_active();
-        config.show_tooltips = show_tooltips.is_active();
+        config.hover_info = HoverInfo::ALL
+            .get(hover.selected() as usize)
+            .copied()
+            .unwrap_or(config.hover_info);
+        config.middle_click = MiddleClick::ALL
+            .get(middle.selected() as usize)
+            .copied()
+            .unwrap_or(config.middle_click);
         config.icon_fallback = IconFallback::ALL
             .get(icon_fallback.selected() as usize)
             .copied()
