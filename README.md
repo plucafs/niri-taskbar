@@ -4,7 +4,20 @@ Taskbar for the niri Wayland compositor
 ![screenshot taskbar and settings](assets/screenshot.png)
 
 # Features
+- Vertical or horizontal bar (top, bottom, left, right)
+- Group windows by app or show each window separately
+- Icon order: last opened, alphabetical, or custom (reorder in settings)
+- Hover info: tooltip, window-list preview, or off
+- Middle-click action: close window, open new window, or focus
+- Pin apps via right-click menu — pinned apps stay visible (greyed out) when closed, click to launch
+- Right-click menu: open, pin/unpin, close
+- Scroll on the bar to switch workspaces
+- Multiple windows per app: click to choose, scroll to cycle
+- Icon fallback for apps without icons: default icon or first two letters
+- Configurable bar height, icon size, and settings icon
 
+# Requirements
+- GTK 4 (v4.22+) and gtk4-layer-shell
 
 ## Download
 [Linux](https://github.com/plucafs/niri-taskbar/releases)
