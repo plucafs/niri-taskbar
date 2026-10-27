@@ -212,7 +212,7 @@ impl Config {
             Ok(text) => match toml::from_str(&text) {
                 Ok(config) => config,
                 Err(err) => {
-                    eprintln!("barthing: {}: {err}", path.display());
+                    eprintln!("niri-taskbar: {}: {err}", path.display());
                     Self::default()
                 }
             },
@@ -224,17 +224,17 @@ impl Config {
         let path = config_path();
         if let Some(dir) = path.parent() {
             if let Err(err) = std::fs::create_dir_all(dir) {
-                eprintln!("barthing: cannot create {}: {err}", dir.display());
+                eprintln!("niri-taskbar: cannot create {}: {err}", dir.display());
                 return;
             }
         }
         match toml::to_string_pretty(self) {
             Ok(text) => {
                 if let Err(err) = std::fs::write(&path, text) {
-                    eprintln!("barthing: cannot write {}: {err}", path.display());
+                    eprintln!("niri-taskbar: cannot write {}: {err}", path.display());
                 }
             }
-            Err(err) => eprintln!("barthing: cannot serialize config: {err}"),
+            Err(err) => eprintln!("niri-taskbar: cannot serialize config: {err}"),
         }
     }
 
@@ -254,5 +254,5 @@ fn config_path() -> std::path::PathBuf {
             let home = std::env::var_os("HOME").unwrap_or_default();
             std::path::Path::new(&home).join(".config")
         });
-    base.join("barthing").join("config.toml")
+    base.join("niri-taskbar").join("config.toml")
 }

@@ -14,7 +14,7 @@ use crate::config::{
 };
 use crate::Bar;
 
-const TITLE: &str = "barthing settings";
+const TITLE: &str = "niri-taskbar settings";
 
 pub fn open(app: &Application, bar: &std::rc::Rc<Bar>) {
     for window in app.windows() {

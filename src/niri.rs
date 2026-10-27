@@ -14,14 +14,14 @@ pub fn spawn_event_thread(tx: async_channel::Sender<Event>) {
         let mut socket = match Socket::connect() {
             Ok(socket) => socket,
             Err(err) => {
-                eprintln!("barthing: cannot connect to niri: {err}");
+                eprintln!("niri-taskbar: cannot connect to niri: {err}");
                 return;
             }
         };
         match socket.send(Request::EventStream) {
             Ok(Ok(niri_ipc::Response::Handled)) => {}
             other => {
-                eprintln!("barthing: event stream rejected: {other:?}");
+                eprintln!("niri-taskbar: event stream rejected: {other:?}");
                 return;
             }
         }
@@ -34,7 +34,7 @@ pub fn spawn_event_thread(tx: async_channel::Sender<Event>) {
                     }
                 }
                 Err(err) => {
-                    eprintln!("barthing: event stream ended: {err}");
+                    eprintln!("niri-taskbar: event stream ended: {err}");
                     break;
                 }
             }
@@ -54,14 +54,14 @@ pub fn send(cmd: Cmd) {
         let mut socket = match Socket::connect() {
             Ok(socket) => socket,
             Err(err) => {
-                eprintln!("barthing: cannot connect to niri: {err}");
+                eprintln!("niri-taskbar: cannot connect to niri: {err}");
                 return;
             }
         };
         match socket.send(request) {
             Ok(Ok(_)) => {}
-            Ok(Err(message)) => eprintln!("barthing: niri rejected action: {message}"),
-            Err(err) => eprintln!("barthing: niri action failed: {err}"),
+            Ok(Err(message)) => eprintln!("niri-taskbar: niri rejected action: {message}"),
+            Err(err) => eprintln!("niri-taskbar: niri action failed: {err}"),
         }
     });
 }

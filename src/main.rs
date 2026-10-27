@@ -136,7 +136,7 @@ impl Bar {
 fn main() -> glib::ExitCode {
     let config = Config::load();
     let app = Application::builder()
-        .application_id("dev.barthing.Barthing")
+        .application_id("dev.niri-taskbar.niri-taskbar")
         .build();
     app.connect_activate(move |app| activate(app, config.clone()));
     app.run()
@@ -152,7 +152,7 @@ fn activate(app: &Application, config: Config) {
     let window = ApplicationWindow::new(app);
     window.init_layer_shell();
     window.set_layer(Layer::Top);
-    window.set_namespace(Some("barthing"));
+    window.set_namespace(Some("niri-taskbar"));
     window.set_keyboard_mode(KeyboardMode::None);
     window.auto_exclusive_zone_enable();
     window.add_css_class("bar-window");
@@ -214,7 +214,7 @@ fn activate(app: &Application, config: Config) {
     let bar_for_gear = Rc::clone(&bar);
     let app_for_settings = app.clone();
     gear.connect_clicked(move |_| {
-        if std::env::var_os("BARTHING_DEBUG").is_some() {
+        if std::env::var_os("niri-taskbar_DEBUG").is_some() {
             eprintln!("CLICK gear");
         }
         settings::open(&app_for_settings, &bar_for_gear);
@@ -256,7 +256,7 @@ fn activate(app: &Application, config: Config) {
     bar.apply_config(config);
     bar.window.present();
 
-    if std::env::var_os("BARTHING_DEBUG").is_some() {
+    if std::env::var_os("niri-taskbar_DEBUG").is_some() {
         let bar_debug = Rc::clone(&bar);
         glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
             for (key, rect) in bar_debug.taskbar.borrow().debug_layout(&bar_debug.window) {

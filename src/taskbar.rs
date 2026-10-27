@@ -483,7 +483,7 @@ impl Taskbar {
         let popover_weak = popover.downgrade();
         let preview_click = preview.as_ref().map(|p| p.downgrade());
         button.connect_clicked(move |_| {
-            if std::env::var_os("BARTHING_DEBUG").is_some() {
+            if std::env::var_os("niri-taskbar_DEBUG").is_some() {
                 eprintln!("CLICK left key={key:?}");
             }
             if let Some(preview) = preview_click.as_ref().and_then(|w| w.upgrade()) {
@@ -539,7 +539,7 @@ impl Taskbar {
         let right_click = gtk::GestureClick::new();
         right_click.set_button(3);
         right_click.connect_released(move |_, _, _, _| {
-            if std::env::var_os("BARTHING_DEBUG").is_some() {
+            if std::env::var_os("niri-taskbar_DEBUG").is_some() {
                 eprintln!("CLICK right key={key:?}");
             }
             if let Some(preview) = preview_context.as_ref().and_then(|w| w.upgrade()) {
@@ -571,7 +571,7 @@ impl Taskbar {
         let middle_click = gtk::GestureClick::new();
         middle_click.set_button(2);
         middle_click.connect_pressed(move |_, _, _, _| {
-            if std::env::var_os("BARTHING_DEBUG").is_some() {
+            if std::env::var_os("niri-taskbar_DEBUG").is_some() {
                 eprintln!("CLICK middle key={key:?}");
             }
             let entries = entries.borrow();

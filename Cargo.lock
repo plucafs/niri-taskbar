@@ -21,18 +21,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
-name = "barthing"
-version = "0.1.0"
-dependencies = [
- "async-channel",
- "gtk4",
- "gtk4-layer-shell",
- "niri-ipc",
- "serde",
- "toml 0.8.23",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -547,6 +535,18 @@ checksum = "6a4adbddf4037ce047854d36a60b5bf80a7990b8db2f0a0b9ede7534b0bae09a"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "niri-taskbar"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "gtk4",
+ "gtk4-layer-shell",
+ "niri-ipc",
+ "serde",
+ "toml 0.8.23",
 ]
 
 [[package]]
